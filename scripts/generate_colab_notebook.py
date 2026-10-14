@@ -1,0 +1,233 @@
+"""
+Generate complete, ready-to-run Google Colab Notebook for EADF-Net.
+"""
+
+import json
+import os
+
+
+def generate_notebook(output_path="EADF-Net/EADF_Net_Training_Colab.ipynb"):
+    cells = [
+        {
+            "cell_type": "markdown",
+            "metadata": {},
+            "source": [
+                "# 🚀 EADF-Net: Google Colab Training & Benchmarking Pipeline\n",
+                "### Beating SGDC-DeepLab (The Visual Computer 2026) across all metrics on LoveDA & FGGS datasets\n",
+                "\n",
+                "**Target Metrics to Beat (LoveDA):**\n",
+                "- **mIoU**: > **61.20%**\n",
+                "- **OA**: > **76.97%**\n",
+                "- **mF1**: > **78.59%**\n",
+                "- Lightweight footprint: ~12M parameters\n"
+            ]
+        },
+        {
+            "cell_type": "markdown",
+            "metadata": {},
+            "source": [
+                "## Step 1: Verify GPU Acceleration"
+            ]
+        },
+        {
+            "cell_type": "code",
+            "execution_count": None,
+            "metadata": {},
+            "outputs": [],
+            "source": [
+                "!nvidia-smi\n",
+                "import torch\n",
+                "print('PyTorch Version:', torch.__version__)\n",
+                "print('CUDA Available:', torch.cuda.is_available())\n",
+                "if torch.cuda.is_available():\n",
+                "    print('GPU Device:', torch.cuda.get_device_name(0))"
+            ]
+        },
+        {
+            "cell_type": "markdown",
+            "metadata": {},
+            "source": [
+                "## Step 2: Mount Google Drive (Optional - for persistent checkpoint saving)"
+            ]
+        },
+        {
+            "cell_type": "code",
+            "execution_count": None,
+            "metadata": {},
+            "outputs": [],
+            "source": [
+                "# Optional: Uncomment to save checkpoints directly to your Google Drive\n",
+                "# from google.colab import drive\n",
+                "# drive.mount('/content/drive')"
+            ]
+        },
+        {
+            "cell_type": "markdown",
+            "metadata": {},
+            "source": [
+                "## Step 3: Setup EADF-Net Repository & Dependencies"
+            ]
+        },
+        {
+            "cell_type": "code",
+            "execution_count": None,
+            "metadata": {},
+            "outputs": [],
+            "source": [
+                "import os\n",
+                "# Automatically unpack EADF-Net.zip if uploaded to /content\n",
+                "if os.path.exists('/content/EADF-Net.zip'):\n",
+                "    !unzip -q -o /content/EADF-Net.zip -d /content\n",
+                "    print('Successfully unpacked EADF-Net.zip')\n",
+                "\n",
+                "%cd /content/EADF-Net\n",
+                "!pip install -q timm torchvision pyyaml"
+            ]
+        },
+        {
+            "cell_type": "markdown",
+            "metadata": {},
+            "source": [
+                "## Step 4: Multi-Threaded High-Speed Download (aria2c - 16 Parallel Connections)\n",
+                "Standard wget is throttled by Zenodo to ~380KB/s (taking >3 hours).\n",
+                "Using aria2c with 16 parallel threads accelerates the download by 15-30x (down to ~2-3 minutes)!"
+            ]
+        },
+        {
+            "cell_type": "code",
+            "execution_count": None,
+            "metadata": {},
+            "outputs": [],
+            "source": [
+                "# Install aria2 multi-connection download accelerator\n",
+                "!apt-get install -y -qq aria2\n",
+                "\n",
+                "!mkdir -p /content/data/LoveDA\n",
+                "%cd /content/data\n",
+                "\n",
+                "print('Downloading Train set with 16 parallel streams...')\n",
+                "!aria2c -x 16 -s 16 -k 1M --file-allocation=none \"https://zenodo.org/records/5706578/files/Train.zip?download=1\" -o loveda_train.zip\n",
+                "\n",
+                "print('Downloading Val set with 16 parallel streams...')\n",
+                "!aria2c -x 16 -s 16 -k 1M --file-allocation=none \"https://zenodo.org/records/5706578/files/Val.zip?download=1\" -o loveda_val.zip\n",
+                "\n",
+                "print('Extracting archives...')\n",
+                "!unzip -q -o loveda_train.zip -d /content/data/LoveDA\n",
+                "!unzip -q -o loveda_val.zip -d /content/data/LoveDA\n",
+                "!rm -f loveda_train.zip loveda_val.zip\n",
+                "\n",
+                "print('Dataset ready at /content/data/LoveDA!')\n",
+                "%cd /content/EADF-Net"
+            ]
+        },
+        {
+            "cell_type": "markdown",
+            "metadata": {},
+            "source": [
+                "## Step 5: Test Forward Pass & Verify Model Architecture"
+            ]
+        },
+        {
+            "cell_type": "code",
+            "execution_count": None,
+            "metadata": {},
+            "outputs": [],
+            "source": [
+                "import sys\n",
+                "import os\n",
+                "# Ensure Python can find EADF-Net modules from any working directory\n",
+                "for p in ['/content/EADF-Net', '/content', os.getcwd()]:\n",
+                "    if p not in sys.path:\n",
+                "        sys.path.insert(0, p)\n",
+                "\n",
+                "import torch\n",
+                "from models import EADFNet\n",
+                "\n",
+                "model = EADFNet(num_classes=7, backbone='efficientnet_b1', pretrained_backbone=True)\n",
+                "x = torch.randn(2, 3, 512, 512)\n",
+                "if torch.cuda.is_available():\n",
+                "    model = model.cuda()\n",
+                "    x = x.cuda()\n",
+                "\n",
+                "outputs = model(x)\n",
+                "print('Output shape:', outputs['main'].shape)\n",
+                "total_params = sum(p.numel() for p in model.parameters())\n",
+                "print(f'Total Parameters: {total_params / 1e6:.2f}M')"
+            ]
+        },
+        {
+            "cell_type": "markdown",
+            "metadata": {},
+            "source": [
+                "## Step 6: Train EADF-Net\n",
+                "Trains for 100 epochs matching SGDC-DeepLab's protocol (50 frozen backbone + 50 fine-tuning) with mixed-precision (AMP) enabled."
+            ]
+        },
+        {
+            "cell_type": "code",
+            "execution_count": None,
+            "metadata": {},
+            "outputs": [],
+            "source": [
+                "!python train.py \\\n",
+                "    --dataset loveda \\\n",
+                "    --data_root /content/data/LoveDA \\\n",
+                "    --backbone efficientnet_b1 \\\n",
+                "    --epochs 100 \\\n",
+                "    --freeze_epochs 50 \\\n",
+                "    --batch_size 4 \\\n",
+                "    --lr 0.0005 \\\n",
+                "    --crop_size 512 \\\n",
+                "    --num_workers 4 \\\n",
+                "    --use_amp \\\n",
+                "    --save_dir /content/checkpoints/loveda"
+            ]
+        },
+        {
+            "cell_type": "markdown",
+            "metadata": {},
+            "source": [
+                "## Step 7: Run Evaluation & Head-to-Head Comparison\n",
+                "Computes mIoU, OA, mF1, and per-class IoU against SGDC-DeepLab and all baselines."
+            ]
+        },
+        {
+            "cell_type": "code",
+            "execution_count": None,
+            "metadata": {},
+            "outputs": [],
+            "source": [
+                "!python evaluate.py \\\n",
+                "    --checkpoint /content/checkpoints/loveda/best_model.pth \\\n",
+                "    --data_root /content/data/LoveDA \\\n",
+                "    --dataset loveda \\\n",
+                "    --batch_size 4 \\\n",
+                "    --crop_size 512"
+            ]
+        }
+    ]
+    
+    nb = {
+        "cells": cells,
+        "metadata": {
+            "accelerator": "GPU",
+            "colab": {
+                "gpuType": "T4",
+                "provenance": []
+            },
+            "language_info": {
+                "name": "python"
+            }
+        },
+        "nbformat": 4,
+        "nbformat_minor": 0
+    }
+    
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    with open(output_path, "w") as f:
+        json.dump(nb, f, indent=2)
+    print(f"Generated Colab notebook at {output_path}")
+
+
+if __name__ == '__main__':
+    generate_notebook()

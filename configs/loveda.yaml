@@ -1,0 +1,52 @@
+# EADF-Net Configuration for LoveDA dataset
+# Matches SGDC-DeepLab training protocol for fair comparison
+
+# === Dataset ===
+dataset: loveda
+data_root: ./data/LoveDA  # Change to your dataset path
+crop_size: 512
+num_workers: 4
+
+# === Model ===
+backbone: efficientnet_b1
+pretrained: true
+num_classes: 7
+
+# === Training ===
+epochs: 100
+freeze_epochs: 50
+batch_size: 4
+lr: 0.0005
+optimizer: adam
+weight_decay: 0.0001
+scheduler: cosine_annealing
+eta_min: 0.000001
+
+# === Loss Weights ===
+lambda_focal: 1.0
+lambda_lovasz: 0.5
+lambda_boundary: 0.3
+lambda_aux: 0.4
+gamma: 2.0
+
+# === Enhancement ===
+use_amp: true
+use_ema: true
+ema_decay: 0.999
+grad_clip: 1.0
+
+# === Data Augmentation ===
+augmentation:
+  random_scale: [0.5, 2.0]
+  random_flip: true
+  random_rotation: [-10, 10]
+  color_jitter:
+    brightness: 0.3
+    contrast: 0.3
+    saturation: 0.3
+    hue: 0.1
+
+# === Saving ===
+save_dir: ./checkpoints/loveda
+log_interval: 50
+seed: 42
