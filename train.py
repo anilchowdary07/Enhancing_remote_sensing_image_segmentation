@@ -131,6 +131,8 @@ def parse_args():
                        help='Focal loss gamma')
     
     # Misc
+    parser.add_argument('--accum_steps', type=int, default=1,
+                       help='Gradient accumulation steps (allows running larger effective batch size on 4GB GPUs)')
     parser.add_argument('--save_dir', type=str, default='./checkpoints',
                        help='Directory to save checkpoints')
     parser.add_argument('--log_interval', type=int, default=50,
@@ -189,32 +191,41 @@ def train_one_epoch(model, loader, criterion, optimizer, scaler, device, epoch, 
     model.train()
     loss_meter = AverageMeter('loss')
     loss_components = {k: AverageMeter(k) for k in ['focal', 'lovasz', 'boundary', 'aux']}
+    accum_steps = max(1, getattr(args, 'accum_steps', 1))
     
+    optimizer.zero_grad()
     for i, (images, targets) in enumerate(loader):
         images = images.to(device, non_blocking=True)
         targets = targets.to(device, non_blocking=True)
-        
-        optimizer.zero_grad()
+        is_accum_step = ((i + 1) % accum_steps == 0) or ((i + 1) == len(loader))
         
         if args.use_amp:
             with get_autocast(True):
                 outputs = model(images)
                 loss, loss_dict = criterion(outputs, targets)
-            scaler.scale(loss).backward()
-            scaler.unscale_(optimizer)
-            if args.grad_clip > 0:
-                nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
-            scaler.step(optimizer)
-            scaler.update()
+            loss_scaled = loss / accum_steps
+            scaler.scale(loss_scaled).backward()
+            
+            if is_accum_step:
+                scaler.unscale_(optimizer)
+                if args.grad_clip > 0:
+                    nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
+                scaler.step(optimizer)
+                scaler.update()
+                optimizer.zero_grad()
         else:
             outputs = model(images)
             loss, loss_dict = criterion(outputs, targets)
-            loss.backward()
-            if args.grad_clip > 0:
-                nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
-            optimizer.step()
+            loss_scaled = loss / accum_steps
+            loss_scaled.backward()
+            
+            if is_accum_step:
+                if args.grad_clip > 0:
+                    nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
+                optimizer.step()
+                optimizer.zero_grad()
         
-        # Update meters
+        # Update meters (record unscaled batch loss)
         loss_meter.update(loss.item(), images.size(0))
         for k in loss_components:
             if k in loss_dict:
@@ -267,6 +278,9 @@ def main():
     if torch.cuda.is_available():
         device = torch.device('cuda')
         print(f"Using CUDA GPU: {torch.cuda.get_device_name(0)}")
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+        torch.backends.cudnn.benchmark = True
     elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
         device = torch.device('mps')
         print("Using Apple Silicon GPU (MPS)")
