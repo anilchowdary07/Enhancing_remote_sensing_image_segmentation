@@ -23,8 +23,8 @@ sys.path.insert(0, REPO_PATH)
 
 # ── Config ────────────────────────────────────────────────────────────────────
 CROP_SIZE     = 256
-BATCH_SIZE    = 2        # 10 images / 2 = 5 batches per epoch
-EPOCHS        = 3
+BATCH_SIZE    = 4        # 100 images / 4 = 25 batches per epoch
+EPOCHS        = 5
 FREEZE_EPOCHS = 1
 
 # ── Device Detection ──────────────────────────────────────────────────────────
