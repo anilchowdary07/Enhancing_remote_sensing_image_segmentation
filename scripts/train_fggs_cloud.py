@@ -91,6 +91,24 @@ if __name__ == '__main__':
     
     prepare_fggs_dataset(data_dir)
 
+    # Automatically download init_weights from Hub if needed
+    for idx, arg in enumerate(sys.argv):
+        if arg == '--init_weights' and idx + 1 < len(sys.argv):
+            weights_val = sys.argv[idx + 1]
+            if not os.path.exists(weights_val):
+                try:
+                    from huggingface_hub import hf_hub_download
+                    filename = os.path.basename(weights_val)
+                    print(f"\n[+] Downloading {filename} from anil988/EADF-Net-FGGS...")
+                    downloaded_path = hf_hub_download(
+                        repo_id="anil988/EADF-Net-FGGS",
+                        filename=filename
+                    )
+                    sys.argv[idx + 1] = downloaded_path
+                    print(f"[✓] Downloaded weights to: {downloaded_path}")
+                except Exception as e:
+                    print(f"[!] Warning: Could not download {weights_val} from Hub: {e}")
+
     import train
     try:
         train.main()
