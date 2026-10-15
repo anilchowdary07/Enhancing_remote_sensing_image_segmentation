@@ -256,31 +256,44 @@ class FGGSDataset(Dataset):
         self.crop_size = crop_size
         self.augment = augment and (split == 'train')
         
-        # Look for common dataset structures
-        img_dir = os.path.join(root, split, 'images')
-        mask_dir = os.path.join(root, split, 'masks')
+        # Resolve split alias (val vs test)
+        actual_split = split
+        if split in ['test', 'val']:
+            if not os.path.exists(os.path.join(root, split)) and not os.path.exists(os.path.join(root, 'img_dir', split)):
+                alt = 'val' if split == 'test' else 'test'
+                if os.path.exists(os.path.join(root, alt)) or os.path.exists(os.path.join(root, 'img_dir', alt)):
+                    actual_split = alt
         
-        # Alternative structure
-        if not os.path.exists(img_dir):
-            img_dir = os.path.join(root, split, 'img')
-            mask_dir = os.path.join(root, split, 'label')
-        
-        if not os.path.exists(img_dir):
-            img_dir = os.path.join(root, split)
-            mask_dir = os.path.join(root, f'{split}_labels')
+        # Look for dataset structures
+        if os.path.exists(os.path.join(root, 'img_dir', actual_split)):
+            img_dir = os.path.join(root, 'img_dir', actual_split)
+            mask_dir = os.path.join(root, 'ann_dir', actual_split)
+        elif os.path.exists(os.path.join(root, actual_split, 'images')):
+            img_dir = os.path.join(root, actual_split, 'images')
+            mask_dir = os.path.join(root, actual_split, 'masks')
+        elif os.path.exists(os.path.join(root, actual_split, 'img')):
+            img_dir = os.path.join(root, actual_split, 'img')
+            mask_dir = os.path.join(root, actual_split, 'label')
+        elif os.path.exists(os.path.join(root, actual_split)):
+            img_dir = os.path.join(root, actual_split)
+            mask_dir = os.path.join(root, f'{actual_split}_labels')
+        else:
+            img_dir = ""
+            mask_dir = ""
         
         self.images = []
         self.masks = []
         
         if os.path.exists(img_dir):
             for fname in sorted(os.listdir(img_dir)):
-                if fname.endswith(('.png', '.tif', '.jpg')):
-                    self.images.append(os.path.join(img_dir, fname))
-                    # Try different mask extensions
-                    mask_name = fname.replace('.jpg', '.png').replace('.tif', '.png')
-                    self.masks.append(os.path.join(mask_dir, mask_name))
+                if fname.endswith(('.png', '.tif', '.tiff', '.jpg', '.jpeg')):
+                    mask_name = os.path.splitext(fname)[0] + '.png'
+                    mask_path = os.path.join(mask_dir, mask_name)
+                    if os.path.exists(mask_path):
+                        self.images.append(os.path.join(img_dir, fname))
+                        self.masks.append(mask_path)
         
-        print(f"FGGS {split}: {len(self.images)} images loaded")
+        print(f"FGGS {split} ({actual_split}): {len(self.images)} images loaded")
         
         self.normalize = transforms.Normalize(
             mean=[0.485, 0.456, 0.406],
