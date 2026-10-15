@@ -146,6 +146,60 @@ class EfficientNetB1Backbone(nn.Module):
         }
 
 
+class MobileNetV2Backbone(nn.Module):
+    """
+    MobileNetV2 backbone matching SGDC-DeepLab baseline.
+    Uses output stride = 16 with dilated convolutions in stage 4.
+    Enhanced with CBAM attention at every scale stage for superior feature selection.
+    
+    Channels:
+    - low_level:  1/4 resolution  (24 channels, layer 3)
+    - mid_level:  1/8 resolution  (32 channels, layer 6)
+    - high_level: 1/16 resolution (96 channels, layer 13)
+    - deep:       1/16 resolution (320 channels, layer 17 with dilation=2)
+    """
+    def __init__(self, pretrained=True):
+        super().__init__()
+        from torchvision.models import mobilenet_v2, MobileNet_V2_Weights
+        
+        weights = MobileNet_V2_Weights.IMAGENET1K_V2 if pretrained else None
+        m = mobilenet_v2(weights=weights)
+        
+        # Modify layers 14-17 for output stride 16 (dilated convs)
+        for n, m_sub in m.features[14:].named_modules():
+            if hasattr(m_sub, 'stride') and m_sub.stride == (2, 2):
+                m_sub.stride = (1, 1)
+            if hasattr(m_sub, 'dilation') and m_sub.kernel_size == (3, 3):
+                m_sub.dilation = (2, 2)
+                m_sub.padding = (2, 2)
+                
+        features = m.features
+        self.stage0 = nn.Sequential(*features[0:2])    # 1/2
+        self.stage1 = nn.Sequential(*features[2:4])    # 1/4, 24 channels
+        self.stage2 = nn.Sequential(*features[4:7])    # 1/8, 32 channels
+        self.stage3 = nn.Sequential(*features[7:14])   # 1/16, 96 channels
+        self.stage4 = nn.Sequential(*features[14:18])  # 1/16, 320 channels (dilated)
+        
+        # CBAM attention at each output level
+        self.cbam_low = CBAM(24)
+        self.cbam_mid = CBAM(32)
+        self.cbam_high = CBAM(96)
+        self.cbam_deep = CBAM(320)
+        
+        self.low_channels = 24
+        self.mid_channels = 32
+        self.high_channels = 96
+        self.deep_channels = 320
+        
+    def forward(self, x):
+        x = self.stage0(x)
+        low = self.cbam_low(self.stage1(x))
+        mid = self.cbam_mid(self.stage2(low))
+        high = self.cbam_high(self.stage3(mid))
+        deep = self.cbam_deep(self.stage4(high))
+        return {'low': low, 'mid': mid, 'high': high, 'deep': deep}
+
+
 class MobileNetV3Backbone(nn.Module):
     """
     Alternative: MobileNetV3-Large backbone (even lighter, ~5.4M params).
@@ -190,11 +244,11 @@ class MobileNetV3Backbone(nn.Module):
 
 if __name__ == '__main__':
     # Quick test
-    model = EfficientNetB1Backbone(pretrained=False)
+    model = MobileNetV2Backbone(pretrained=False)
     x = torch.randn(2, 3, 512, 512)
     features = model(x)
     for k, v in features.items():
         print(f"{k}: {v.shape}")
     
     total_params = sum(p.numel() for p in model.parameters())
-    print(f"Total backbone params: {total_params / 1e6:.2f}M")
+    print(f"Total MobileNetV2 backbone params: {total_params / 1e6:.2f}M")

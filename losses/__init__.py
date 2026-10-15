@@ -264,10 +264,11 @@ class CompoundLoss(nn.Module):
         self.lambda_boundary = lambda_boundary
         self.lambda_aux = lambda_aux
         
-        # Default prioritized class weights for LoveDA:
+        # Calibrated class weights for LoveDA:
         # [background, building, road, water, barren, forest, agriculture]
+        # Gentle boost to minority classes without penalizing/starving majority classes
         if class_weights is None and num_classes == 7:
-            class_weights = [1.0, 2.5, 2.0, 1.2, 3.5, 2.0, 1.0]
+            class_weights = [1.0, 1.3, 1.2, 1.0, 1.4, 1.2, 1.0]
         
         self.focal_loss = EnhancedAdaptiveFocalLoss(
             num_classes=num_classes, gamma=gamma, class_weights=class_weights, ignore_index=ignore_index

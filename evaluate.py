@@ -89,7 +89,7 @@ def evaluate(args):
         sgdc_results = SGDC_FGGS
     
     # Build model
-    backbone = saved_args.get('backbone', 'efficientnet_b1')
+    backbone = args.backbone or saved_args.get('backbone', 'mobilenet_v2')
     model = EADFNet(num_classes=num_classes, backbone=backbone, pretrained_backbone=False)
     model.load_state_dict(checkpoint['model_state_dict'])
     model = model.to(device)
@@ -203,6 +203,7 @@ def parse_args():
     parser.add_argument('--checkpoint', type=str, required=True)
     parser.add_argument('--data_root', type=str, required=True)
     parser.add_argument('--dataset', type=str, default=None, choices=['loveda', 'fggs'])
+    parser.add_argument('--backbone', type=str, default=None, choices=['mobilenet_v2', 'efficientnet_b1', 'mobilenet_v3'])
     parser.add_argument('--batch_size', type=int, default=4)
     parser.add_argument('--crop_size', type=int, default=None)
     parser.add_argument('--num_workers', type=int, default=4)

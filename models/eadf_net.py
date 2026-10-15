@@ -14,7 +14,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .backbone import EfficientNetB1Backbone, MobileNetV3Backbone
+from .backbone import EfficientNetB1Backbone, MobileNetV2Backbone, MobileNetV3Backbone
 from .lafc import LAFC_ASPP
 from .cafm import CAFM
 from .decoder import EnhancedDecoder
@@ -24,53 +24,33 @@ class EADFNet(nn.Module):
     """
     EADF-Net: Enhanced Adaptive Deformable Fusion Network.
     
-    Architecture overview:
-    
-    Input [B, 3, H, W]
-         │
-         ▼
-    ┌─────────────────────┐
-    │  EfficientNet-B1     │  Backbone with CBAM
-    │  + CBAM Attention    │
-    └───┬───┬───┬───┬─────┘
-        │   │   │   │
-      low mid high deep   Multi-scale features
-     (1/4)(1/8)(1/16)(1/32)
-        │   │   │   │
-        │   │   │   ▼
-        │   │   │  ┌──────────┐
-        │   │   │  │ LAFC-ASPP│  Learnable Adaptive Frequency Conv
-        │   │   │  └────┬─────┘
-        │   │   │       │
-        ▼   ▼   ▼       ▼
-    ┌────────────────────────┐
-    │        CAFM             │  Cross-Attention Feature Fusion
-    │  (hierarchical fusion)  │
-    └──────────┬──────────────┘
-               │
-               ▼
-    ┌──────────────────────┐
-    │   Enhanced Decoder    │  Progressive upsampling + deep supervision
-    └──────────┬───────────┘
-               │
-               ▼
-         Output [B, C, H, W]
+    A unified architecture combining:
+    1. SGDC-DeepLab's proven DeepLabv3+ layout & MobileNetV2 backbone (stride 16, ~7.2M params)
+    2. CBAM Attention at all multi-scale feature extraction stages
+    3. LAFC-ASPP: Learnable Adaptive Frequency Convolution (vs fixed Gaussian SGDC)
+    4. CAFM: Coordinate + Cross-Attention Feature Fusion (vs GhostModule LFFM)
+    5. Enhanced Progressive Decoder with deep supervision and boundary refinement
+    6. Compound loss: Balanced AFL + Lovász-Softmax (direct mIoU optimization)
     
     Args:
         num_classes: Number of segmentation classes (7 for LoveDA, 5 for FGGS)
-        backbone: Backbone type ('efficientnet_b1' or 'mobilenet_v3')
+        backbone: Backbone type ('mobilenet_v2', 'efficientnet_b1', or 'mobilenet_v3')
         aspp_dilations: Dilation rates for LAFC-ASPP branches
         pretrained_backbone: Whether to use pretrained backbone weights
     """
-    def __init__(self, num_classes=7, backbone='efficientnet_b1',
+    def __init__(self, num_classes=7, backbone='mobilenet_v2',
                  aspp_dilations=(6, 12, 18), pretrained_backbone=True):
         super().__init__()
         self.num_classes = num_classes
+        self.backbone_name = backbone
         
         # 1. Backbone
-        if backbone == 'efficientnet_b1':
+        if backbone == 'mobilenet_v2':
+            self.backbone = MobileNetV2Backbone(pretrained=pretrained_backbone)
+            deep_channels = self.backbone.deep_channels  # 320
+        elif backbone == 'efficientnet_b1':
             self.backbone = EfficientNetB1Backbone(pretrained=pretrained_backbone)
-            deep_channels = self.backbone.deep_channels  # 320 or 1280
+            deep_channels = self.backbone.deep_channels  # 320
         elif backbone == 'mobilenet_v3':
             self.backbone = MobileNetV3Backbone(pretrained=pretrained_backbone)
             deep_channels = self.backbone.deep_channels
@@ -89,9 +69,7 @@ class EADFNet(nn.Module):
             dilations=aspp_dilations
         )
         
-        # Transition: deep features are at 1/32, but ASPP output and high features
-        # should be at 1/16. We need to handle this properly.
-        # EfficientNet-B1 stage4 outputs at 1/32, so upsample ASPP to 1/16
+        # Transition: if deep features are at 1/32 (e.g. EfficientNet), upsample to 1/16
         self.aspp_upsample = nn.Sequential(
             nn.Conv2d(256, 256, 3, padding=1, bias=False),
             nn.BatchNorm2d(256),
@@ -160,12 +138,13 @@ class EADFNet(nn.Module):
         # features['deep']: [B, 320, H/32, W/32]
         
         # 2. LAFC-ASPP on deep features
-        aspp_out = self.aspp(features['deep'])  # [B, 256, H/32, W/32]
+        aspp_out = self.aspp(features['deep'])
         
-        # Upsample ASPP to match high-level features (1/16)
-        aspp_out = F.interpolate(aspp_out, size=features['high'].shape[2:],
-                                mode='bilinear', align_corners=True)
-        aspp_out = self.aspp_upsample(aspp_out)  # [B, 256, H/16, W/16]
+        # Upsample ASPP to match high-level features (1/16) if needed (e.g. EfficientNet 1/32)
+        if aspp_out.shape[2:] != features['high'].shape[2:]:
+            aspp_out = F.interpolate(aspp_out, size=features['high'].shape[2:],
+                                    mode='bilinear', align_corners=True)
+            aspp_out = self.aspp_upsample(aspp_out)
         
         # 3. CAFM: Cross-attention feature fusion
         fused, edge_map = self.cafm(features, aspp_out)

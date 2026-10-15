@@ -98,17 +98,17 @@ def parse_args():
                        help='Root directory of the dataset')
     
     # Model
-    parser.add_argument('--backbone', type=str, default='efficientnet_b1',
-                       choices=['efficientnet_b1', 'mobilenet_v3'],
-                       help='Backbone network')
+    parser.add_argument('--backbone', type=str, default='mobilenet_v2',
+                       choices=['mobilenet_v2', 'efficientnet_b1', 'mobilenet_v3'],
+                       help='Backbone network (mobilenet_v2 matches SGDC-DeepLab baseline)')
     parser.add_argument('--pretrained', action='store_true', default=True,
                        help='Use pretrained backbone')
     
     # Training
-    parser.add_argument('--epochs', type=int, default=60,
-                       help='Total epochs')
-    parser.add_argument('--freeze_epochs', type=int, default=0,
-                       help='Epochs to freeze backbone (0 for full end-to-end)')
+    parser.add_argument('--epochs', type=int, default=100,
+                       help='Total epochs (100 matches SGDC-DeepLab paper schedule)')
+    parser.add_argument('--freeze_epochs', type=int, default=50,
+                       help='Epochs to freeze backbone (50 matches SGDC-DeepLab paper schedule)')
     parser.add_argument('--batch_size', type=int, default=4,
                        help='Training batch size')
     parser.add_argument('--lr', type=float, default=0.0005,
@@ -124,11 +124,11 @@ def parse_args():
     
     # Loss weights
     parser.add_argument('--lambda_focal', type=float, default=1.0)
-    parser.add_argument('--lambda_lovasz', type=float, default=1.0,
-                       help='Lovasz loss weight (1.0 for direct mIoU optimization)')
-    parser.add_argument('--lambda_boundary', type=float, default=0.4,
+    parser.add_argument('--lambda_lovasz', type=float, default=0.5,
+                       help='Lovasz loss weight (0.5 for calibrated direct mIoU optimization)')
+    parser.add_argument('--lambda_boundary', type=float, default=0.2,
                        help='Boundary loss weight')
-    parser.add_argument('--lambda_aux', type=float, default=0.4)
+    parser.add_argument('--lambda_aux', type=float, default=0.2)
     parser.add_argument('--gamma', type=float, default=2.0,
                        help='Focal loss gamma')
     
