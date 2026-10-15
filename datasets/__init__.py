@@ -76,17 +76,34 @@ class LoveDADataset(Dataset):
         self.images = []
         self.masks = []
         
-        for scene in ['Urban', 'Rural']:
-            img_dir = os.path.join(root, split, scene, 'images_png')
-            mask_dir = os.path.join(root, split, scene, 'masks_png')
+        # Check HuggingFace layout first, then fallback to standard layout
+        hf_train_img = os.path.join(root, 'urban:rural train images')
+        hf_val_img   = os.path.join(root, 'urban:rural val images')
+        if (split.lower() == 'train' and os.path.exists(hf_train_img)) or (split.lower() != 'train' and os.path.exists(hf_val_img)):
+            if split.lower() == 'train':
+                img_dir  = hf_train_img
+                mask_dir = os.path.join(root, 'urban:rural train masks')
+            else:
+                img_dir  = hf_val_img
+                mask_dir = os.path.join(root, 'urban:rural val masks')
             
-            if not os.path.exists(img_dir):
-                continue
-            
-            for fname in sorted(os.listdir(img_dir)):
-                if fname.endswith('.png'):
-                    self.images.append(os.path.join(img_dir, fname))
-                    self.masks.append(os.path.join(mask_dir, fname))
+            if os.path.exists(img_dir):
+                for fname in sorted(os.listdir(img_dir)):
+                    if fname.endswith('.png'):
+                        self.images.append(os.path.join(img_dir, fname))
+                        self.masks.append(os.path.join(mask_dir, fname))
+        else:
+            for scene in ['Urban', 'Rural']:
+                img_dir = os.path.join(root, split, scene, 'images_png')
+                mask_dir = os.path.join(root, split, scene, 'masks_png')
+                
+                if not os.path.exists(img_dir):
+                    continue
+                
+                for fname in sorted(os.listdir(img_dir)):
+                    if fname.endswith('.png'):
+                        self.images.append(os.path.join(img_dir, fname))
+                        self.masks.append(os.path.join(mask_dir, fname))
         
         # Fast subsampling if requested
         if max_samples is not None and max_samples < len(self.images):
