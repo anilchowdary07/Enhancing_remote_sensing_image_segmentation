@@ -124,11 +124,19 @@ def parse_args():
     
     # Loss weights
     parser.add_argument('--lambda_focal', type=float, default=1.0)
-    parser.add_argument('--lambda_lovasz', type=float, default=0.5)
-    parser.add_argument('--lambda_boundary', type=float, default=0.3)
+    parser.add_argument('--lambda_lovasz', type=float, default=1.0,
+                       help='Lovasz loss weight (1.0 for direct mIoU optimization)')
+    parser.add_argument('--lambda_boundary', type=float, default=0.4,
+                       help='Boundary loss weight')
     parser.add_argument('--lambda_aux', type=float, default=0.4)
     parser.add_argument('--gamma', type=float, default=2.0,
                        help='Focal loss gamma')
+    
+    # Checkpointing & Resuming
+    parser.add_argument('--init_weights', type=str, default=None,
+                       help='Path to weights (.pth) to initialize model from')
+    parser.add_argument('--resume', type=str, default=None,
+                       help='Path to checkpoint (.pth) to resume training from')
     
     # Misc
     parser.add_argument('--accum_steps', type=int, default=1,
@@ -139,7 +147,7 @@ def parse_args():
                        help='Logging interval (iterations)')
     parser.add_argument('--use_amp', action='store_true', default=True,
                        help='Use mixed precision training')
-    parser.add_argument('--use_ema', action='store_true', default=True,
+    parser.add_argument('--use_ema', action='store_true', default=False,
                        help='Use EMA model averaging')
     parser.add_argument('--grad_clip', type=float, default=1.0,
                        help='Gradient clipping max norm')
@@ -336,8 +344,30 @@ def main():
     # Metrics
     metrics = SegmentationMetrics(num_classes, class_names)
     
-    # Training
+    # Load pretrained weights or resume
+    start_epoch = 1
     best_miou = 0.0
+    if args.init_weights and os.path.exists(args.init_weights):
+        print(f"\n[+] Loading model weights from: {args.init_weights}")
+        ckpt = torch.load(args.init_weights, map_location=device, weights_only=False)
+        state_dict = ckpt['model_state_dict'] if 'model_state_dict' in ckpt else ckpt
+        msg = model.load_state_dict(state_dict, strict=False)
+        print(f"    Successfully loaded weights: {msg}")
+    
+    if args.resume and os.path.exists(args.resume):
+        print(f"\n[+] Resuming from checkpoint: {args.resume}")
+        ckpt = torch.load(args.resume, map_location=device, weights_only=False)
+        model.load_state_dict(ckpt['model_state_dict'])
+        if 'optimizer_state_dict' in ckpt:
+            try:
+                optimizer.load_state_dict(ckpt['optimizer_state_dict'])
+            except Exception:
+                pass
+        start_epoch = ckpt.get('epoch', 0) + 1
+        best_miou = ckpt.get('best_miou', 0.0)
+        print(f"    Resuming at epoch {start_epoch}, previous best mIoU: {best_miou:.2f}%")
+    
+    # Training
     best_results = None
     training_log = []
     
@@ -346,7 +376,7 @@ def main():
           f"({args.freeze_epochs} frozen + {args.epochs - args.freeze_epochs} fine-tuning)")
     print(f"{'=' * 70}")
     
-    for epoch in range(1, args.epochs + 1):
+    for epoch in range(start_epoch, args.epochs + 1):
         epoch_start = time.time()
         
         # Freeze/unfreeze backbone
@@ -364,18 +394,8 @@ def main():
             model, train_loader, criterion, optimizer, scaler, device, epoch, args
         )
         
-        # Update EMA
-        if ema is not None:
-            ema.update(model)
-        
-        # Validate
-        if ema is not None:
-            ema.apply(model)
-        
+        # Validate directly on active model for true benchmark tracking
         results = validate(model, val_loader, metrics, device, args)
-        
-        if ema is not None:
-            ema.restore(model)
         
         # Update scheduler
         scheduler.step()

@@ -37,36 +37,21 @@ class EnhancedAdaptiveFocalLoss(nn.Module):
     Args:
         num_classes: Number of segmentation classes
         gamma: Focusing parameter
-        ema_decay: Decay rate for exponential moving average
+        class_weights: Optional list/tensor of weights per class
         ignore_index: Label index to ignore (e.g., 255)
     """
-    def __init__(self, num_classes=7, gamma=2.0, ema_decay=0.99, ignore_index=255):
+    def __init__(self, num_classes=7, gamma=2.0, class_weights=None, ignore_index=255):
         super().__init__()
         self.num_classes = num_classes
         self.gamma = gamma
-        self.ema_decay = ema_decay
         self.ignore_index = ignore_index
         
-        # EMA tracking of per-class confidence
-        self.register_buffer('class_confidence', torch.ones(num_classes))
-        self.register_buffer('update_count', torch.tensor(0.0))
-    
-    def _update_class_confidence(self, pred, target):
-        """Update EMA of class prediction confidence."""
-        with torch.no_grad():
-            prob = torch.softmax(pred, dim=1)
-            valid_mask = target != self.ignore_index
-            
-            for c in range(self.num_classes):
-                class_mask = (target == c) & valid_mask
-                if class_mask.sum() > 0:
-                    class_prob = prob[:, c][class_mask].mean()
-                    self.class_confidence[c] = (
-                        self.ema_decay * self.class_confidence[c] +
-                        (1 - self.ema_decay) * class_prob
-                    )
-            
-            self.update_count += 1
+        if class_weights is not None:
+            weights = torch.as_tensor(class_weights, dtype=torch.float32)
+            weights = weights / weights.sum() * num_classes
+            self.register_buffer('alpha', weights)
+        else:
+            self.register_buffer('alpha', torch.ones(num_classes))
     
     def forward(self, pred, target):
         """
@@ -76,17 +61,6 @@ class EnhancedAdaptiveFocalLoss(nn.Module):
         Returns:
             Scalar loss
         """
-        # Update class confidence EMA
-        if self.training:
-            self._update_class_confidence(pred, target)
-        
-        # Compute dynamic class weights from EMA confidence
-        with torch.no_grad():
-            p_min = self.class_confidence.min().clamp(min=1e-6)
-            alpha = p_min / self.class_confidence.clamp(min=1e-6)
-            alpha = alpha / alpha.sum() * self.num_classes  # Normalize
-        
-        # Compute per-pixel focal loss with dynamic weights
         ce_loss = F.cross_entropy(pred, target, reduction='none',
                                   ignore_index=self.ignore_index)
         
@@ -100,16 +74,16 @@ class EnhancedAdaptiveFocalLoss(nn.Module):
         focal_weight = (1 - pt) ** self.gamma
         
         # Class-specific alpha weighting
-        alpha_t = alpha[target_safe]
+        alpha_t = self.alpha[target_safe]
         
         # Combined loss
         loss = alpha_t * focal_weight * ce_loss
         
         # Mask out ignored pixels
         valid_mask = target != self.ignore_index
-        loss = loss[valid_mask].mean()
-        
-        return loss
+        if valid_mask.sum() == 0:
+            return torch.tensor(0.0, device=pred.device, requires_grad=True)
+        return loss[valid_mask].mean()
 
 
 class LovaszSoftmax(nn.Module):
@@ -280,8 +254,9 @@ class CompoundLoss(nn.Module):
         gamma: Focal loss focusing parameter
         ignore_index: Label index to ignore
     """
-    def __init__(self, num_classes=7, lambda_focal=1.0, lambda_lovasz=0.5,
-                 lambda_boundary=0.3, lambda_aux=0.4, gamma=2.0, ignore_index=255):
+    def __init__(self, num_classes=7, lambda_focal=1.0, lambda_lovasz=1.0,
+                 lambda_boundary=0.4, lambda_aux=0.4, gamma=2.0,
+                 class_weights=None, ignore_index=255):
         super().__init__()
         
         self.lambda_focal = lambda_focal
@@ -289,15 +264,20 @@ class CompoundLoss(nn.Module):
         self.lambda_boundary = lambda_boundary
         self.lambda_aux = lambda_aux
         
+        # Default prioritized class weights for LoveDA:
+        # [background, building, road, water, barren, forest, agriculture]
+        if class_weights is None and num_classes == 7:
+            class_weights = [1.0, 2.5, 2.0, 1.2, 3.5, 2.0, 1.0]
+        
         self.focal_loss = EnhancedAdaptiveFocalLoss(
-            num_classes=num_classes, gamma=gamma, ignore_index=ignore_index
+            num_classes=num_classes, gamma=gamma, class_weights=class_weights, ignore_index=ignore_index
         )
         self.lovasz_loss = LovaszSoftmax(
             classes='present', ignore_index=ignore_index
         )
         self.boundary_loss = BoundaryLoss()
         self.aux_focal = EnhancedAdaptiveFocalLoss(
-            num_classes=num_classes, gamma=gamma, ignore_index=ignore_index
+            num_classes=num_classes, gamma=gamma, class_weights=class_weights, ignore_index=ignore_index
         )
     
     def forward(self, outputs, target):

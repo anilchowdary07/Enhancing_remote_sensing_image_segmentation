@@ -163,13 +163,11 @@ class LoveDADataset(Dataset):
             image = transforms.functional.vflip(image)
             mask = transforms.functional.vflip(mask)
         
-        # Random rotation (-10 to 10 degrees)
-        if random.random() > 0.5:
-            angle = random.uniform(-10, 10)
-            image = transforms.functional.rotate(image, angle, interpolation=Image.BILINEAR,
-                                                  fill=0)
-            mask = transforms.functional.rotate(mask, angle, interpolation=Image.NEAREST,
-                                                 fill=self.IGNORE_INDEX)
+        # Orthogonal 90, 180, 270 degree rotation (satellite imagery is rotation-invariant)
+        rot = random.choice([0, 90, 180, 270])
+        if rot > 0:
+            image = image.rotate(rot, expand=False)
+            mask = mask.rotate(rot, expand=False)
         
         # Color jittering (image only)
         if random.random() > 0.5:
@@ -187,8 +185,13 @@ class LoveDADataset(Dataset):
         if self.augment:
             image, mask = self._augment(image, mask)
         else:
-            # Center crop for validation
-            image, mask = self._random_crop(image, mask, self.crop_size)
+            # Deterministic center crop for validation (reproducible, consistent evaluation)
+            w, h = image.size
+            if self.crop_size is not None and (w > self.crop_size or h > self.crop_size):
+                x = max(0, (w - self.crop_size) // 2)
+                y = max(0, (h - self.crop_size) // 2)
+                image = transforms.functional.crop(image, y, x, self.crop_size, self.crop_size)
+                mask = transforms.functional.crop(mask, y, x, self.crop_size, self.crop_size)
         
         # Convert to tensors
         image = transforms.functional.to_tensor(image)
