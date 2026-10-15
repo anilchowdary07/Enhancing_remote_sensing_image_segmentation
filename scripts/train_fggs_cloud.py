@@ -117,9 +117,12 @@ if __name__ == '__main__':
 
     # Upload results
     save_dir = "./checkpoints/fggs_100ep"
+    hub_repo = "anil988/EADF-Net-FGGS"
     for idx, arg in enumerate(sys.argv):
         if arg == '--save_dir' and idx + 1 < len(sys.argv):
             save_dir = sys.argv[idx + 1]
+        elif arg == '--hub_repo' and idx + 1 < len(sys.argv):
+            hub_repo = sys.argv[idx + 1]
 
     if os.path.exists(save_dir):
-        upload_to_hub(save_dir)
+        upload_to_hub(save_dir, repo_id=hub_repo)

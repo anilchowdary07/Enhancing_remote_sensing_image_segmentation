@@ -95,6 +95,19 @@ def predict_sliding_window(model, x, num_classes=7, tile_size=512, stride=256, t
     return total_probs / count_map
 
 
+def predict_with_tta(model, x):
+    """
+    Test-Time Augmentation (4-fold flip ensemble: Original + H-Flip + V-Flip + HV-Flip).
+    Averages calibrated softmax probabilities across spatial orientations.
+    """
+    import torch.nn.functional as F
+    p1 = F.softmax(model(x)['main'], dim=1)
+    p2 = F.softmax(model(x.flip(-1))['main'], dim=1).flip(-1)
+    p3 = F.softmax(model(x.flip(-2))['main'], dim=1).flip(-2)
+    p4 = F.softmax(model(x.flip(-1).flip(-2))['main'], dim=1).flip(-1).flip(-2)
+    return (p1 + p2 + p3 + p4) / 4.0
+
+
 def evaluate(args):
     if torch.cuda.is_available():
         device = torch.device('cuda')
@@ -159,6 +172,8 @@ def evaluate(args):
                     model, images, num_classes=num_classes,
                     tile_size=tile_size, stride=stride, tta=use_tta
                 )
+            elif use_tta:
+                pred = predict_with_tta(model, images)
             else:
                 outputs = model(images)
                 pred = outputs['main']

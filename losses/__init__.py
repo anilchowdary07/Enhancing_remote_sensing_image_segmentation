@@ -93,17 +93,22 @@ class LovaszSoftmax(nn.Module):
     This is a CRITICAL addition vs SGDC-DeepLab:
     - Directly optimizes the mIoU metric (the primary evaluation metric)
     - Cross-entropy is a surrogate; Lovász is a tighter bound on IoU
-    - Especially effective for class-imbalanced datasets
+    - Supports class-calibrated weighting to boost lagging minority classes
     
     Ref: Berman et al., "The Lovász-Softmax loss: A tractable surrogate 
          for the optimization of the intersection-over-union measure in 
          neural networks", CVPR 2018
     """
-    def __init__(self, classes='present', per_image=False, ignore_index=255):
+    def __init__(self, classes='present', per_image=False, ignore_index=255, class_weights=None):
         super().__init__()
         self.classes = classes
         self.per_image = per_image
         self.ignore_index = ignore_index
+        if class_weights is not None:
+            weights = torch.as_tensor(class_weights, dtype=torch.float32)
+            self.register_buffer('class_weights', weights)
+        else:
+            self.register_buffer('class_weights', None)
     
     def forward(self, pred, target):
         """
@@ -117,12 +122,13 @@ class LovaszSoftmax(nn.Module):
         return lovasz_softmax_flat(
             probas, target,
             classes=self.classes,
-            ignore_index=self.ignore_index
+            ignore_index=self.ignore_index,
+            class_weights=self.class_weights
         )
 
 
-def lovasz_softmax_flat(probas, labels, classes='present', ignore_index=255):
-    """Multi-class Lovász-Softmax loss."""
+def lovasz_softmax_flat(probas, labels, classes='present', ignore_index=255, class_weights=None):
+    """Multi-class Lovász-Softmax loss with optional per-class weighting."""
     if probas.numel() == 0:
         return probas * 0.
     
@@ -139,6 +145,7 @@ def lovasz_softmax_flat(probas, labels, classes='present', ignore_index=255):
         return probas.sum() * 0.
     
     losses = []
+    w_list = []
     
     if classes == 'present':
         present_classes = labels.unique()
@@ -146,18 +153,25 @@ def lovasz_softmax_flat(probas, labels, classes='present', ignore_index=255):
         present_classes = torch.arange(C, device=probas.device)
     
     for c in present_classes:
+        c_idx = int(c.item()) if isinstance(c, torch.Tensor) else int(c)
         fg = (labels == c).float()
         if fg.sum() == 0 and classes == 'present':
             continue
-        errors = (1. - probas[:, c]) * fg + probas[:, c] * (1. - fg)
+        errors = (1. - probas[:, c_idx]) * fg + probas[:, c_idx] * (1. - fg)
         errors_sorted, perm = torch.sort(errors, descending=True)
         fg_sorted = fg[perm]
         losses.append(torch.dot(errors_sorted, lovasz_grad(fg_sorted)))
+        if class_weights is not None and c_idx < len(class_weights):
+            w_list.append(float(class_weights[c_idx]))
+        else:
+            w_list.append(1.0)
     
     if len(losses) == 0:
         return torch.tensor(0.0, device=probas.device, requires_grad=True)
     
-    return torch.stack(losses).mean()
+    losses_tensor = torch.stack(losses)
+    weights_tensor = torch.tensor(w_list, device=losses_tensor.device, dtype=losses_tensor.dtype)
+    return (losses_tensor * weights_tensor).sum() / weights_tensor.sum()
 
 
 def lovasz_grad(gt_sorted):
@@ -272,14 +286,14 @@ class CompoundLoss(nn.Module):
         elif class_weights is None and num_classes == 5:
             # Calibrated class weights for FGGS:
             # [low, middle-low, middle, middle-high, high]
-            # Boost middle-high and middle to close the benchmark gap
-            class_weights = [1.0, 1.1, 1.15, 1.5, 1.0]
+            # middle-high is only 9.98% of dataset; boost to 2.2 to bridge final benchmark gap
+            class_weights = [1.0, 1.2, 1.4, 2.2, 0.9]
         
         self.focal_loss = EnhancedAdaptiveFocalLoss(
             num_classes=num_classes, gamma=gamma, class_weights=class_weights, ignore_index=ignore_index
         )
         self.lovasz_loss = LovaszSoftmax(
-            classes='present', ignore_index=ignore_index
+            classes='present', ignore_index=ignore_index, class_weights=class_weights
         )
         self.boundary_loss = BoundaryLoss()
         self.aux_focal = EnhancedAdaptiveFocalLoss(
