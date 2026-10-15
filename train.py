@@ -105,10 +105,10 @@ def parse_args():
                        help='Use pretrained backbone')
     
     # Training
-    parser.add_argument('--epochs', type=int, default=100,
+    parser.add_argument('--epochs', type=int, default=60,
                        help='Total epochs')
-    parser.add_argument('--freeze_epochs', type=int, default=50,
-                       help='Epochs to freeze backbone')
+    parser.add_argument('--freeze_epochs', type=int, default=0,
+                       help='Epochs to freeze backbone (0 for full end-to-end)')
     parser.add_argument('--batch_size', type=int, default=4,
                        help='Training batch size')
     parser.add_argument('--lr', type=float, default=0.0005,
