@@ -269,6 +269,11 @@ class CompoundLoss(nn.Module):
         # Gentle boost to minority classes without penalizing/starving majority classes
         if class_weights is None and num_classes == 7:
             class_weights = [1.0, 1.3, 1.2, 1.0, 1.4, 1.2, 1.0]
+        elif class_weights is None and num_classes == 5:
+            # Calibrated class weights for FGGS:
+            # [low, middle-low, middle, middle-high, high]
+            # Boost middle-high and middle to close the benchmark gap
+            class_weights = [1.0, 1.1, 1.15, 1.5, 1.0]
         
         self.focal_loss = EnhancedAdaptiveFocalLoss(
             num_classes=num_classes, gamma=gamma, class_weights=class_weights, ignore_index=ignore_index
