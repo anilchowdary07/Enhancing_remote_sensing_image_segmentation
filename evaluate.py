@@ -54,6 +54,47 @@ BASELINES_LOVEDA = {
 }
 
 
+def predict_sliding_window(model, x, num_classes=7, tile_size=512, stride=256, tta=True):
+    """
+    Sliding-window evaluation with 2D Hanning window smooth blending and Test-Time Augmentation (TTA).
+    Evaluates native high-resolution (1024x1024) satellite scenes with overlap to eliminate edge artifacts.
+    """
+    import torch.nn.functional as F
+    B, C, H, W = x.shape
+    total_probs = torch.zeros((B, num_classes, H, W), device=x.device)
+    count_map = torch.zeros((B, 1, H, W), device=x.device)
+    
+    h_win = torch.hann_window(tile_size, device=x.device)
+    w_win = torch.hann_window(tile_size, device=x.device)
+    weight = (h_win[:, None] * w_win[None, :]).unsqueeze(0).unsqueeze(0).clamp(min=1e-4)
+    
+    y_starts = list(range(0, H - tile_size + 1, stride))
+    if len(y_starts) == 0 or y_starts[-1] != H - tile_size:
+        y_starts.append(max(0, H - tile_size))
+    x_starts = list(range(0, W - tile_size + 1, stride))
+    if len(x_starts) == 0 or x_starts[-1] != W - tile_size:
+        x_starts.append(max(0, W - tile_size))
+        
+    for ys in y_starts:
+        for xs in x_starts:
+            tile = x[:, :, ys:ys+tile_size, xs:xs+tile_size]
+            with torch.no_grad():
+                out = F.softmax(model(tile)['main'], dim=1)
+                if tta:
+                    # Horizontal flip
+                    tile_hf = torch.flip(tile, dims=[-1])
+                    out_hf = torch.flip(F.softmax(model(tile_hf)['main'], dim=1), dims=[-1])
+                    # Vertical flip
+                    tile_vf = torch.flip(tile, dims=[-2])
+                    out_vf = torch.flip(F.softmax(model(tile_vf)['main'], dim=1), dims=[-2])
+                    out = (out + out_hf + out_vf) / 3.0
+                    
+            total_probs[:, :, ys:ys+tile_size, xs:xs+tile_size] += out * weight
+            count_map[:, :, ys:ys+tile_size, xs:xs+tile_size] += weight
+            
+    return total_probs / count_map
+
+
 def evaluate(args):
     if torch.cuda.is_available():
         device = torch.device('cuda')
@@ -72,7 +113,7 @@ def evaluate(args):
     if dataset == 'loveda':
         num_classes = 7
         class_names = LoveDADataset.CLASSES
-        crop_size = args.crop_size or 512
+        crop_size = args.crop_size
         _, val_loader = LoveDADataset.get_loaders(
             args.data_root, batch_size=args.batch_size,
             crop_size=crop_size, num_workers=args.num_workers
@@ -101,13 +142,31 @@ def evaluate(args):
     # Evaluate
     metrics = SegmentationMetrics(num_classes, class_names)
     
+    use_sliding = getattr(args, 'sliding_window', False)
+    use_tta = getattr(args, 'tta', False)
+    tile_size = getattr(args, 'tile_size', 512)
+    stride = getattr(args, 'stride', 256)
+    
+    print(f"\n[+] Running Evaluation: dataset={dataset}, sliding_window={use_sliding}, TTA={use_tta}")
+    
     with torch.no_grad():
-        for images, targets in val_loader:
+        for idx, (images, targets) in enumerate(val_loader):
             images = images.to(device)
             targets = targets.to(device)
             
-            outputs = model(images)
-            metrics.update(outputs['main'], targets)
+            if use_sliding and images.shape[-1] >= tile_size and images.shape[-2] >= tile_size:
+                pred = predict_sliding_window(
+                    model, images, num_classes=num_classes,
+                    tile_size=tile_size, stride=stride, tta=use_tta
+                )
+            else:
+                outputs = model(images)
+                pred = outputs['main']
+                
+            metrics.update(pred, targets)
+            if (idx + 1) % 50 == 0 or (idx + 1) == len(val_loader):
+                print(f"  Evaluated [{idx + 1}/{len(val_loader)}] scenes...", end='\r')
+        print()
     
     results = metrics.get_results()
     
@@ -207,6 +266,14 @@ def parse_args():
     parser.add_argument('--batch_size', type=int, default=4)
     parser.add_argument('--crop_size', type=int, default=None)
     parser.add_argument('--num_workers', type=int, default=4)
+    parser.add_argument('--sliding_window', action='store_true', default=False,
+                       help='Use overlapping sliding-window inference for full-resolution (1024x1024) scenes')
+    parser.add_argument('--tile_size', type=int, default=512,
+                       help='Tile size for sliding window (default: 512)')
+    parser.add_argument('--stride', type=int, default=256,
+                       help='Stride for sliding window overlap (default: 256 for 50%% overlap)')
+    parser.add_argument('--tta', action='store_true', default=False,
+                       help='Enable Test-Time Augmentation (flips)')
     return parser.parse_args()
 
 
