@@ -153,6 +153,8 @@ def parse_args():
                        help='Gradient clipping max norm')
     parser.add_argument('--seed', type=int, default=42,
                        help='Random seed')
+    parser.add_argument('--hub_repo', type=str, default=None,
+                       help='Hugging Face Hub repository ID to upload checkpoints')
     
     return parser.parse_args()
 
