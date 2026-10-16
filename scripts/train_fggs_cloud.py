@@ -98,10 +98,16 @@ if __name__ == '__main__':
             if not os.path.exists(weights_val):
                 try:
                     from huggingface_hub import hf_hub_download
-                    filename = os.path.basename(weights_val)
-                    print(f"\n[+] Downloading {filename} from anil988/EADF-Net-FGGS...")
+                    if '/' in weights_val and not weights_val.startswith('/'):
+                        parts = weights_val.split('/')
+                        repo_id = '/'.join(parts[:-1])
+                        filename = parts[-1]
+                    else:
+                        repo_id = "anil988/EADF-Net-FGGS-SOTA"
+                        filename = os.path.basename(weights_val)
+                    print(f"\n[+] Downloading {filename} from {repo_id}...")
                     downloaded_path = hf_hub_download(
-                        repo_id="anil988/EADF-Net-FGGS",
+                        repo_id=repo_id,
                         filename=filename
                     )
                     sys.argv[idx + 1] = downloaded_path
