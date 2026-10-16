@@ -69,11 +69,14 @@ if __name__ == '__main__':
         pass
 
     # Upload results to Hub
-    # Parse save_dir from train arguments or default
+    # Parse save_dir and hub_repo from train arguments or default
     save_dir = "./checkpoints/loveda_full"
+    hub_repo = "anil988/EADF-Net-LoveDA"
     for idx, arg in enumerate(sys.argv):
         if arg == '--save_dir' and idx + 1 < len(sys.argv):
             save_dir = sys.argv[idx + 1]
+        elif arg == '--hub_repo' and idx + 1 < len(sys.argv):
+            hub_repo = sys.argv[idx + 1]
 
     if os.path.exists(save_dir):
-        upload_to_hub(save_dir)
+        upload_to_hub(save_dir, repo_id=hub_repo)
