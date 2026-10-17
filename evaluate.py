@@ -277,7 +277,7 @@ def parse_args():
     parser.add_argument('--checkpoint', type=str, required=True)
     parser.add_argument('--data_root', type=str, required=True)
     parser.add_argument('--dataset', type=str, default=None, choices=['loveda', 'fggs'])
-    parser.add_argument('--backbone', type=str, default=None, choices=['mobilenet_v2', 'efficientnet_b1', 'mobilenet_v3'])
+    parser.add_argument('--backbone', type=str, default=None, choices=['mobilenet_v2', 'efficientnet_b1', 'mobilenet_v3', 'convnext_base'])
     parser.add_argument('--batch_size', type=int, default=4)
     parser.add_argument('--crop_size', type=int, default=None)
     parser.add_argument('--num_workers', type=int, default=4)
