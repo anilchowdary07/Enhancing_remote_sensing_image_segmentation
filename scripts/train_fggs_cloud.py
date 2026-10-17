@@ -154,15 +154,33 @@ if __name__ == '__main__':
                 
         eval_model = EADFNet(num_classes=5, backbone=backbone, pretrained_backbone=False).to(device)
         ckpt = torch.load(best_path, map_location=device, weights_only=False)
-        eval_model.load_state_dict(ckpt['model_state_dict'])
         eval_model.eval()
         
-        # 1. Standard single-pass
+        def get_flips_prob(m, x):
+            p1 = F.softmax(m(x)['main'], dim=1)
+            p2 = F.softmax(m(x.flip(-1))['main'], dim=1).flip(-1)
+            p3 = F.softmax(m(x.flip(-2))['main'], dim=1).flip(-2)
+            p4 = F.softmax(m(x.flip(-1).flip(-2))['main'], dim=1).flip(-1).flip(-2)
+            return (p1 + p2 + p3 + p4) / 4.0
+
+        # Try to load champion MobileNetV2 for ensemble comparison
+        champion_model = None
+        try:
+            from huggingface_hub import hf_hub_download
+            champ_path = hf_hub_download(repo_id="anil988/EADF-Net-FGGS-CHAMPION", filename="best_model.pth")
+            champion_model = EADFNet(num_classes=5, backbone="mobilenet_v2", pretrained_backbone=False).to(device)
+            c_ckpt = torch.load(champ_path, map_location=device, weights_only=False)
+            champion_model.load_state_dict(c_ckpt['model_state_dict'])
+            champion_model.eval()
+            print("[✓] Loaded champion MobileNetV2 for dual-architecture cross-family ensembling.")
+        except Exception as e:
+            print(f"[*] Champion model not loaded for ensemble: {e}")
+
+        # Metrics trackers
         m_std = SegmentationMetrics(5, FGGSDataset.CLASSES)
-        # 2. 4-fold flip TTA
         m_flip = SegmentationMetrics(5, FGGSDataset.CLASSES)
-        # 3. Multi-scale TTA
         m_ms = SegmentationMetrics(5, FGGSDataset.CLASSES)
+        m_ens = SegmentationMetrics(5, FGGSDataset.CLASSES) if champion_model is not None else None
         
         with torch.no_grad():
             for imgs, targets in val_loader:
@@ -173,30 +191,43 @@ if __name__ == '__main__':
                 m_std.update(p_std, targets)
                 
                 # Flip TTA
-                p_flip = (p_std + 
-                          F.softmax(eval_model(imgs.flip(-1))['main'], dim=1).flip(-1) +
-                          F.softmax(eval_model(imgs.flip(-2))['main'], dim=1).flip(-2) +
-                          F.softmax(eval_model(imgs.flip(-1).flip(-2))['main'], dim=1).flip(-1).flip(-2)) / 4.0
+                p_flip = get_flips_prob(eval_model, imgs)
                 m_flip.update(p_flip, targets)
                 
-                # MS TTA
+                # Multi-Scale + Flip TTA (0.85, 1.0, 1.15)
                 B, C, H, W = imgs.shape
                 total_ms = torch.zeros_like(p_std)
-                for s in [0.9, 1.0, 1.1]:
+                scales = [0.85, 1.0, 1.15]
+                for s in scales:
                     new_h, new_w = int(round(H * s / 32) * 32), int(round(W * s / 32) * 32)
                     s_imgs = F.interpolate(imgs, size=(new_h, new_w), mode='bilinear', align_corners=True)
-                    s_pred = F.softmax(eval_model(s_imgs)['main'], dim=1)
-                    s_pred_up = F.interpolate(s_pred, size=(H, W), mode='bilinear', align_corners=True)
-                    total_ms += s_pred_up
-                total_ms = total_ms / 3.0
+                    s_prob = get_flips_prob(eval_model, s_imgs)
+                    s_prob_up = F.interpolate(s_prob, size=(H, W), mode='bilinear', align_corners=True)
+                    total_ms += s_prob_up
+                total_ms = total_ms / len(scales)
                 m_ms.update(total_ms, targets)
+
+                # Cross-family ensemble with champion
+                if champion_model is not None:
+                    c_prob = get_flips_prob(champion_model, imgs)
+                    ens_prob = 0.55 * total_ms + 0.45 * c_prob
+                    m_ens.update(ens_prob, targets)
         
         res_std = m_std.get_results()
         res_flip = m_flip.get_results()
         res_ms = m_ms.get_results()
+        res_ens = m_ens.get_results() if m_ens is not None else None
         
-        best_eval = max([res_std, res_flip, res_ms], key=lambda x: x['mIoU'])
-        eval_name = "Single-Pass" if best_eval == res_std else ("4-Flip TTA" if best_eval == res_flip else "Multi-Scale TTA")
+        eval_candidates = [
+            ("Single-Pass", res_std),
+            ("4-Flip TTA", res_flip),
+            ("Multi-Scale TTA", res_ms)
+        ]
+        if res_ens is not None:
+            eval_candidates.append(("Cross-Family Ensemble (ConvNeXt + MobileNetV2)", res_ens))
+            
+        best_name, best_eval = max(eval_candidates, key=lambda x: x[1]['mIoU'])
+        eval_name = best_name
         
         paper = {
             'low': 68.84, 'middle-low': 49.47, 'middle': 32.12, 'middle-high': 33.11,
@@ -231,6 +262,7 @@ if __name__ == '__main__':
             'standard': res_std,
             'flip_tta': res_flip,
             'ms_tta': res_ms,
+            'ensemble': res_ens,
             'best_results': best_eval,
             'paper_target_table6': paper
         }

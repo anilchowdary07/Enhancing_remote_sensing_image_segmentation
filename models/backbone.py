@@ -297,6 +297,58 @@ class ConvNeXtBaseBackbone(nn.Module):
         return {'low': low, 'mid': mid, 'high': high, 'deep': deep}
 
 
+class ConvNeXtLargeBackbone(nn.Module):
+    """
+    ConvNeXt-Large backbone for maximum parameter capacity segmentation (~198M params, 84.3% Top-1).
+    7x7 depthwise convolutions with multi-scale CBAM attention.
+    
+    Channels:
+    - low:   1/4 resolution  (192 channels)
+    - mid:   1/8 resolution  (384 channels)
+    - high:  1/16 resolution (768 channels)
+    - deep:  1/32 resolution (1536 channels)
+    """
+    def __init__(self, pretrained=True):
+        super().__init__()
+        from torchvision.models import convnext_large, ConvNeXt_Large_Weights
+        
+        if pretrained:
+            weights = ConvNeXt_Large_Weights.IMAGENET1K_V1
+            model = convnext_large(weights=weights)
+        else:
+            model = convnext_large()
+            
+        features = model.features
+        self.stage0 = nn.Sequential(features[0], features[1])  # 1/4, 192ch
+        self.stage1 = nn.Sequential(features[2], features[3])  # 1/8, 384ch
+        self.stage2 = nn.Sequential(features[4], features[5])  # 1/16, 768ch
+        self.stage3 = nn.Sequential(features[6], features[7])  # 1/32, 1536ch
+        
+        self.cbam_low = CBAM(192)
+        self.cbam_mid = CBAM(384)
+        self.cbam_high = CBAM(768)
+        self.cbam_deep = CBAM(1536)
+        
+        self.low_channels = 192
+        self.mid_channels = 384
+        self.high_channels = 768
+        self.deep_channels = 1536
+        
+    def forward(self, x):
+        f0 = self.stage0(x).contiguous()
+        low = self.cbam_low(f0).contiguous()
+        
+        f1 = self.stage1(f0).contiguous()
+        mid = self.cbam_mid(f1).contiguous()
+        
+        f2 = self.stage2(f1).contiguous()
+        high = self.cbam_high(f2).contiguous()
+        
+        f3 = self.stage3(f2).contiguous()
+        deep = self.cbam_deep(f3).contiguous()
+        return {'low': low, 'mid': mid, 'high': high, 'deep': deep}
+
+
 if __name__ == '__main__':
     # Quick test
     model = ConvNeXtBaseBackbone(pretrained=False)

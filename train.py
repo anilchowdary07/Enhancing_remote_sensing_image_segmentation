@@ -99,8 +99,8 @@ def parse_args():
     
     # Model
     parser.add_argument('--backbone', type=str, default='mobilenet_v2',
-                       choices=['mobilenet_v2', 'efficientnet_b1', 'mobilenet_v3', 'convnext_base'],
-                       help='Backbone network (mobilenet_v2, efficientnet_b1, convnext_base)')
+                       choices=['mobilenet_v2', 'efficientnet_b1', 'mobilenet_v3', 'convnext_base', 'convnext_large'],
+                       help='Backbone network (mobilenet_v2, efficientnet_b1, convnext_base, convnext_large)')
     parser.add_argument('--pretrained', action='store_true', default=True,
                        help='Use pretrained backbone')
     
@@ -121,6 +121,8 @@ def parse_args():
                        help='Limit number of training samples for fast benchmark')
     parser.add_argument('--max_val_samples', type=int, default=None,
                        help='Limit number of validation samples for fast benchmark')
+    parser.add_argument('--val_interval', type=int, default=1,
+                       help='Run validation every N epochs to accelerate training')
     
     # Loss weights
     parser.add_argument('--lambda_focal', type=float, default=1.0)
@@ -372,6 +374,7 @@ def main():
     # Training
     best_results = None
     training_log = []
+    last_results = None
     
     print(f"\n{'=' * 70}")
     print(f"Starting training: {args.epochs} epochs "
@@ -397,7 +400,12 @@ def main():
         )
         
         # Validate directly on active model for true benchmark tracking
-        results = validate(model, val_loader, metrics, device, args)
+        should_validate = (epoch % args.val_interval == 0) or (epoch == args.epochs) or (epoch == args.freeze_epochs)
+        if should_validate:
+            results = validate(model, val_loader, metrics, device, args)
+            last_results = results
+        else:
+            results = last_results if last_results is not None else {'OA': 0.0, 'mIoU': 0.0, 'mF1': 0.0, 'per_class_iou': {}}
         
         # Update scheduler
         scheduler.step()
@@ -417,37 +425,39 @@ def main():
         }
         training_log.append(log_entry)
         
-        print(f"\nEpoch {epoch}/{args.epochs} [{phase}] "
-              f"Loss: {train_loss:.4f} | "
-              f"OA: {results['OA']:.2f}% | "
-              f"mIoU: {results['mIoU']:.2f}% | "
-              f"mF1: {results['mF1']:.2f}% | "
-              f"Time: {epoch_time:.1f}s")
-        
-        # Per-class IoU
-        iou_str = " | ".join([f"{name}: {iou:.2f}%"
-                              for name, iou in results['per_class_iou'].items()])
-        print(f"  IoU: {iou_str}")
-        
-        # Save best model
-        if results['mIoU'] > best_miou:
-            best_miou = results['mIoU']
-            best_results = results
+        if should_validate:
+            print(f"\nEpoch {epoch}/{args.epochs} [{phase}] "
+                  f"Loss: {train_loss:.4f} | "
+                  f"OA: {results['OA']:.2f}% | "
+                  f"mIoU: {results['mIoU']:.2f}% | "
+                  f"mF1: {results['mF1']:.2f}% | "
+                  f"Time: {epoch_time:.1f}s")
             
-            checkpoint = {
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'best_miou': best_miou,
-                'results': results,
-                'args': vars(args)
-            }
+            # Per-class IoU
+            iou_str = " | ".join([f"{name}: {iou:.2f}%"
+                                  for name, iou in results['per_class_iou'].items()])
+            print(f"  IoU: {iou_str}")
             
-            if ema is not None:
-                checkpoint['ema_shadow'] = ema.shadow
-            
-            torch.save(checkpoint, os.path.join(args.save_dir, 'best_model.pth'))
-            print(f"  *** New best mIoU: {best_miou:.2f}% ***")
+            # Save best model
+            if results['mIoU'] > best_miou:
+                best_miou = results['mIoU']
+                best_results = results
+                
+                checkpoint = {
+                    'epoch': epoch,
+                    'model_state_dict': model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'metrics': results,
+                    'args': vars(args),
+                    'timestamp': datetime.now().isoformat()
+                }
+                torch.save(checkpoint, os.path.join(args.save_dir, 'best_model.pth'))
+                print(f"  *** New best mIoU: {best_miou:.2f}% ***")
+        else:
+            print(f"\nEpoch {epoch}/{args.epochs} [{phase}] "
+                  f"Loss: {train_loss:.4f} | "
+                  f"Validation skipped (val_interval={args.val_interval}) | "
+                  f"Time: {epoch_time:.1f}s")
         
         # Save periodic checkpoint
         if epoch % 10 == 0:
