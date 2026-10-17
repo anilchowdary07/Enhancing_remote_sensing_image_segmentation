@@ -154,6 +154,7 @@ if __name__ == '__main__':
                 
         eval_model = EADFNet(num_classes=5, backbone=backbone, pretrained_backbone=False).to(device)
         ckpt = torch.load(best_path, map_location=device, weights_only=False)
+        eval_model.load_state_dict(ckpt['model_state_dict'])
         eval_model.eval()
         
         def get_flips_prob(m, x):
