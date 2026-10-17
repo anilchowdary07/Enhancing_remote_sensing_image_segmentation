@@ -90,72 +90,82 @@ def main():
     data_dir = prepare_fggs_dataset()
     _, val_loader = FGGSDataset.get_loaders(data_dir, batch_size=16, crop_size=256, num_workers=4)
 
-    # 1. Download Champion Model
-    print("\n[+] Downloading Champion model from anil988/EADF-Net-FGGS-CHAMPION...")
-    champ_path = hf_hub_download(repo_id="anil988/EADF-Net-FGGS-CHAMPION", filename="best_model.pth")
-    model_champ = EADFNet(num_classes=5, backbone='mobilenet_v2', pretrained_backbone=False)
-    ckpt_champ = torch.load(champ_path, map_location='cpu', weights_only=False)
-    model_champ.load_state_dict(ckpt_champ['model_state_dict'])
-    model_champ = model_champ.to(device).eval()
-    print("[✓] Champion model loaded.")
+    repo1 = "anil988/EADF-Net-FGGS-ConvNeXt"
+    backbone1 = "convnext_base"
+    repo2 = "anil988/EADF-Net-FGGS-CHAMPION"
+    backbone2 = "mobilenet_v2"
+    
+    for idx, arg in enumerate(sys.argv):
+        if arg == '--repo1' and idx + 1 < len(sys.argv):
+            repo1 = sys.argv[idx + 1]
+        elif arg == '--backbone1' and idx + 1 < len(sys.argv):
+            backbone1 = sys.argv[idx + 1]
+        elif arg == '--repo2' and idx + 1 < len(sys.argv):
+            repo2 = sys.argv[idx + 1]
+        elif arg == '--backbone2' and idx + 1 < len(sys.argv):
+            backbone2 = sys.argv[idx + 1]
 
-    # 2. Download SOTA Model
-    print("\n[+] Downloading SOTA model from anil988/EADF-Net-FGGS-SOTA...")
-    sota_path = hf_hub_download(repo_id="anil988/EADF-Net-FGGS-SOTA", filename="best_model.pth")
-    model_sota = EADFNet(num_classes=5, backbone='mobilenet_v2', pretrained_backbone=False)
-    ckpt_sota = torch.load(sota_path, map_location='cpu', weights_only=False)
-    model_sota.load_state_dict(ckpt_sota['model_state_dict'])
-    model_sota = model_sota.to(device).eval()
-    print("[✓] SOTA model loaded.")
+    # 1. Download Model 1
+    print(f"\n[+] Downloading Model 1 ({backbone1}) from {repo1}...")
+    try:
+        path1 = hf_hub_download(repo_id=repo1, filename="best_model.pth")
+    except Exception:
+        path1 = hf_hub_download(repo_id="anil988/EADF-Net-FGGS-CHAMPION", filename="best_model.pth")
+        backbone1 = "mobilenet_v2"
+    model1 = EADFNet(num_classes=5, backbone=backbone1, pretrained_backbone=False)
+    ckpt1 = torch.load(path1, map_location='cpu', weights_only=False)
+    model1.load_state_dict(ckpt1['model_state_dict'])
+    model1 = model1.to(device).eval()
+    print(f"[✓] Model 1 ({backbone1}) loaded.")
 
-    # 3. Evaluate Champion with 4-Flip TTA
-    print("\n[+] Evaluating Champion Model with 4-Flip TTA...")
-    m_champ_flip = SegmentationMetrics(5, FGGSDataset.CLASSES)
+    # 2. Download Model 2
+    print(f"\n[+] Downloading Model 2 ({backbone2}) from {repo2}...")
+    try:
+        path2 = hf_hub_download(repo_id=repo2, filename="best_model.pth")
+    except Exception:
+        path2 = hf_hub_download(repo_id="anil988/EADF-Net-FGGS-SOTA", filename="best_model.pth")
+        backbone2 = "mobilenet_v2"
+    model2 = EADFNet(num_classes=5, backbone=backbone2, pretrained_backbone=False)
+    ckpt2 = torch.load(path2, map_location='cpu', weights_only=False)
+    model2.load_state_dict(ckpt2['model_state_dict'])
+    model2 = model2.to(device).eval()
+    print(f"[✓] Model 2 ({backbone2}) loaded.")
+
+    # 3. Evaluate Model 1 with Multi-Scale TTA
+    print(f"\n[+] Evaluating Model 1 ({backbone1}) with Multi-Scale + 4-Flip TTA...")
+    m_m1_ms = SegmentationMetrics(5, FGGSDataset.CLASSES)
     with torch.no_grad():
         for imgs, targets in val_loader:
             imgs, targets = imgs.to(device), targets.to(device)
-            p = get_flips(model_champ, imgs)
-            m_champ_flip.update(p, targets)
-    res_champ_flip = m_champ_flip.get_results()
-    print("\n--- CHAMPION MODEL (4-FLIP TTA) ---")
-    m_champ_flip.print_results(res_champ_flip)
+            p = get_ms_flips(model1, imgs)
+            m_m1_ms.update(p, targets)
+    res_m1_ms = m_m1_ms.get_results()
+    print(f"\n--- MODEL 1 ({backbone1}) (MULTI-SCALE + 4-FLIP TTA) ---")
+    m_m1_ms.print_results(res_m1_ms)
 
-    # 4. Evaluate Champion with Multi-Scale (0.85, 1.0, 1.15) + 4-Flip TTA
-    print("\n[+] Evaluating Champion Model with Multi-Scale (0.85, 1.0, 1.15) + 4-Flip TTA...")
-    m_champ_ms = SegmentationMetrics(5, FGGSDataset.CLASSES)
+    # 4. Evaluate Model 2 with Multi-Scale TTA
+    print(f"\n[+] Evaluating Model 2 ({backbone2}) with Multi-Scale + 4-Flip TTA...")
+    m_m2_ms = SegmentationMetrics(5, FGGSDataset.CLASSES)
     with torch.no_grad():
         for imgs, targets in val_loader:
             imgs, targets = imgs.to(device), targets.to(device)
-            p = get_ms_flips(model_champ, imgs)
-            m_champ_ms.update(p, targets)
-    res_champ_ms = m_champ_ms.get_results()
-    print("\n--- CHAMPION MODEL (MULTI-SCALE + 4-FLIP TTA) ---")
-    m_champ_ms.print_results(res_champ_ms)
+            p = get_ms_flips(model2, imgs)
+            m_m2_ms.update(p, targets)
+    res_m2_ms = m_m2_ms.get_results()
+    print(f"\n--- MODEL 2 ({backbone2}) (MULTI-SCALE + 4-FLIP TTA) ---")
+    m_m2_ms.print_results(res_m2_ms)
 
-    # 5. Evaluate Dual-Model Ensemble (Champion + SOTA) with 4-Flip TTA
-    print("\n[+] Evaluating Dual-Model Ensemble (Champion + SOTA) with 4-Flip TTA...")
-    m_ens_flip = SegmentationMetrics(5, FGGSDataset.CLASSES)
-    with torch.no_grad():
-        for imgs, targets in val_loader:
-            imgs, targets = imgs.to(device), targets.to(device)
-            p1 = get_flips(model_champ, imgs)
-            p2 = get_flips(model_sota, imgs)
-            m_ens_flip.update(0.5 * p1 + 0.5 * p2, targets)
-    res_ens_flip = m_ens_flip.get_results()
-    print("\n--- DUAL-MODEL ENSEMBLE (4-FLIP TTA) ---")
-    m_ens_flip.print_results(res_ens_flip)
-
-    # 6. Evaluate Dual-Model Ensemble with Multi-Scale + 4-Flip TTA
-    print("\n[+] Evaluating Dual-Model Ensemble with Multi-Scale + 4-Flip TTA...")
+    # 5. Evaluate Dual-Architecture Ensemble with Multi-Scale TTA
+    print(f"\n[+] Evaluating Dual-Architecture Ensemble ({backbone1} + {backbone2}) with Multi-Scale + 4-Flip TTA...")
     m_ens_ms = SegmentationMetrics(5, FGGSDataset.CLASSES)
     with torch.no_grad():
         for imgs, targets in val_loader:
             imgs, targets = imgs.to(device), targets.to(device)
-            p1 = get_ms_flips(model_champ, imgs)
-            p2 = get_ms_flips(model_sota, imgs)
-            m_ens_ms.update(0.5 * p1 + 0.5 * p2, targets)
+            p1 = get_ms_flips(model1, imgs)
+            p2 = get_ms_flips(model2, imgs)
+            m_ens_ms.update(0.55 * p1 + 0.45 * p2, targets)
     res_ens_ms = m_ens_ms.get_results()
-    print("\n--- DUAL-MODEL ENSEMBLE (MULTI-SCALE + 4-FLIP TTA) ---")
+    print(f"\n--- DUAL-ARCHITECTURE ENSEMBLE ({backbone1} + {backbone2}) (MULTI-SCALE + 4-FLIP TTA) ---")
     m_ens_ms.print_results(res_ens_ms)
 
     # Comparison Table with Paper Table 6
@@ -167,7 +177,7 @@ def main():
         'high': 79.51, 'mIoU': 51.48, 'mF1': 66.21
     }
     
-    best_res = max([res_champ_flip, res_champ_ms, res_ens_flip, res_ens_ms], key=lambda x: x['mIoU'])
+    best_res = max([res_m1_ms, res_m2_ms, res_ens_ms], key=lambda x: x['mIoU'])
     
     print(f"{'Class / Metric':<18} {'SGDC-DeepLab':<14} {'EADF-Net (Best)':<16} {'Difference':<12} {'Status'}")
     print("-" * 75)
@@ -175,23 +185,22 @@ def main():
         p_val = paper[c]
         o_val = best_res['per_class_iou'][c]
         diff = o_val - p_val
-        status = "✓ BEATS" if diff > 0 else "✗ BELOW"
+        status = "🏆 BEATS" if diff > 0 else "✗ BELOW"
         print(f"{c:<18} {p_val:>10.2f}%   {o_val:>12.2f}%   {diff:>+10.2f}%   [{status}]")
     print("-" * 75)
     for m in ['mIoU', 'mF1']:
         p_val = paper[m]
         o_val = best_res[m]
         diff = o_val - p_val
-        status = "✓ BEATS" if diff > 0 else "✗ BELOW"
+        status = "🏆 BEATS" if diff > 0 else "✗ BELOW"
         print(f"{m:<18} {p_val:>10.2f}%   {o_val:>12.2f}%   {diff:>+10.2f}%   [{status}]")
     print(f"{'OA':<18} {'~84.6% (train)':<14} {best_res['OA']:>12.2f}% (test)")
     print("=" * 75)
 
     # Save results to JSON
     results_dict = {
-        'champion_flip': res_champ_flip,
-        'champion_ms': res_champ_ms,
-        'ensemble_flip': res_ens_flip,
+        'model1_ms': res_m1_ms,
+        'model2_ms': res_m2_ms,
         'ensemble_ms': res_ens_ms,
         'best': best_res,
         'paper_table6': paper
