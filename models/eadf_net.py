@@ -147,7 +147,9 @@ class EADFNet(nn.Module):
         if aspp_out.shape[2:] != features['high'].shape[2:]:
             aspp_out = F.interpolate(aspp_out, size=features['high'].shape[2:],
                                     mode='bilinear', align_corners=True)
-            aspp_out = self.aspp_upsample(aspp_out)
+            aspp_out = self.aspp_upsample(aspp_out).contiguous()
+        else:
+            aspp_out = aspp_out.contiguous()
         
         # 3. CAFM: Cross-attention feature fusion
         fused, edge_map = self.cafm(features, aspp_out)

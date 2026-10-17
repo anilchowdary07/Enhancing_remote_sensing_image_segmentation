@@ -22,12 +22,13 @@ class ChannelAttention(nn.Module):
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
+        x = x.contiguous()
         avg_out = self.avg_pool(x).squeeze(-1).transpose(-1, -2)
         max_out = self.max_pool(x).squeeze(-1).transpose(-1, -2)
         avg_out = self.conv(avg_out).transpose(-1, -2).unsqueeze(-1)
         max_out = self.conv(max_out).transpose(-1, -2).unsqueeze(-1)
         out = self.sigmoid(avg_out + max_out)
-        return x * out
+        return (x * out).contiguous()
 
 
 class SpatialAttention(nn.Module):
@@ -38,11 +39,12 @@ class SpatialAttention(nn.Module):
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
+        x = x.contiguous()
         avg_out = torch.mean(x, dim=1, keepdim=True)
         max_out, _ = torch.max(x, dim=1, keepdim=True)
         combined = torch.cat([avg_out, max_out], dim=1)
         attn = self.sigmoid(self.conv(combined))
-        return x * attn
+        return (x * attn).contiguous()
 
 
 class CBAM(nn.Module):
@@ -53,9 +55,9 @@ class CBAM(nn.Module):
         self.sa = SpatialAttention()
 
     def forward(self, x):
-        x = self.ca(x)
-        x = self.sa(x)
-        return x
+        x = self.ca(x.contiguous())
+        x = self.sa(x.contiguous())
+        return x.contiguous()
 
 
 class EfficientNetB1Backbone(nn.Module):
@@ -281,17 +283,17 @@ class ConvNeXtBaseBackbone(nn.Module):
         self.deep_channels = 1024
         
     def forward(self, x):
-        f0 = self.stage0(x)
-        low = self.cbam_low(f0)
+        f0 = self.stage0(x).contiguous()
+        low = self.cbam_low(f0).contiguous()
         
-        f1 = self.stage1(f0)
-        mid = self.cbam_mid(f1)
+        f1 = self.stage1(f0).contiguous()
+        mid = self.cbam_mid(f1).contiguous()
         
-        f2 = self.stage2(f1)
-        high = self.cbam_high(f2)
+        f2 = self.stage2(f1).contiguous()
+        high = self.cbam_high(f2).contiguous()
         
-        f3 = self.stage3(f2)
-        deep = self.cbam_deep(f3)
+        f3 = self.stage3(f2).contiguous()
+        deep = self.cbam_deep(f3).contiguous()
         return {'low': low, 'mid': mid, 'high': high, 'deep': deep}
 
 
