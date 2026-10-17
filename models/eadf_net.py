@@ -14,7 +14,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .backbone import EfficientNetB1Backbone, MobileNetV2Backbone, MobileNetV3Backbone
+from .backbone import EfficientNetB1Backbone, MobileNetV2Backbone, MobileNetV3Backbone, ConvNeXtBaseBackbone
 from .lafc import LAFC_ASPP
 from .cafm import CAFM
 from .decoder import EnhancedDecoder
@@ -25,7 +25,7 @@ class EADFNet(nn.Module):
     EADF-Net: Enhanced Adaptive Deformable Fusion Network.
     
     A unified architecture combining:
-    1. SGDC-DeepLab's proven DeepLabv3+ layout & MobileNetV2 backbone (stride 16, ~7.2M params)
+    1. SGDC-DeepLab's proven DeepLabv3+ layout & multi-scale backbones (MobileNetV2, EfficientNet-B1, ConvNeXt-Base)
     2. CBAM Attention at all multi-scale feature extraction stages
     3. LAFC-ASPP: Learnable Adaptive Frequency Convolution (vs fixed Gaussian SGDC)
     4. CAFM: Coordinate + Cross-Attention Feature Fusion (vs GhostModule LFFM)
@@ -34,7 +34,7 @@ class EADFNet(nn.Module):
     
     Args:
         num_classes: Number of segmentation classes (7 for LoveDA, 5 for FGGS)
-        backbone: Backbone type ('mobilenet_v2', 'efficientnet_b1', or 'mobilenet_v3')
+        backbone: Backbone type ('mobilenet_v2', 'efficientnet_b1', 'mobilenet_v3', or 'convnext_base')
         aspp_dilations: Dilation rates for LAFC-ASPP branches
         pretrained_backbone: Whether to use pretrained backbone weights
     """
@@ -54,6 +54,9 @@ class EADFNet(nn.Module):
         elif backbone == 'mobilenet_v3':
             self.backbone = MobileNetV3Backbone(pretrained=pretrained_backbone)
             deep_channels = self.backbone.deep_channels
+        elif backbone == 'convnext_base':
+            self.backbone = ConvNeXtBaseBackbone(pretrained=pretrained_backbone)
+            deep_channels = self.backbone.deep_channels  # 1024
         else:
             raise ValueError(f"Unknown backbone: {backbone}")
         

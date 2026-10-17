@@ -99,8 +99,8 @@ def parse_args():
     
     # Model
     parser.add_argument('--backbone', type=str, default='mobilenet_v2',
-                       choices=['mobilenet_v2', 'efficientnet_b1', 'mobilenet_v3'],
-                       help='Backbone network (mobilenet_v2 matches SGDC-DeepLab baseline)')
+                       choices=['mobilenet_v2', 'efficientnet_b1', 'mobilenet_v3', 'convnext_base'],
+                       help='Backbone network (mobilenet_v2, efficientnet_b1, convnext_base)')
     parser.add_argument('--pretrained', action='store_true', default=True,
                        help='Use pretrained backbone')
     

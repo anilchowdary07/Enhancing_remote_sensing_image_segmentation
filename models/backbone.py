@@ -242,13 +242,66 @@ class MobileNetV3Backbone(nn.Module):
         return {'low': low, 'mid': mid, 'high': high, 'deep': deep}
 
 
+class ConvNeXtBaseBackbone(nn.Module):
+    """
+    ConvNeXt-Base backbone for high-capacity remote sensing segmentation.
+    ~88M parameters, 83.8% ImageNet Top-1 accuracy.
+    7x7 depthwise convolutions with multi-scale CBAM attention.
+    
+    Channels:
+    - low:   1/4 resolution  (128 channels)
+    - mid:   1/8 resolution  (256 channels)
+    - high:  1/16 resolution (512 channels)
+    - deep:  1/32 resolution (1024 channels)
+    """
+    def __init__(self, pretrained=True):
+        super().__init__()
+        from torchvision.models import convnext_base, ConvNeXt_Base_Weights
+        
+        if pretrained:
+            weights = ConvNeXt_Base_Weights.IMAGENET1K_V1
+            model = convnext_base(weights=weights)
+        else:
+            model = convnext_base()
+            
+        features = model.features
+        self.stage0 = nn.Sequential(features[0], features[1])  # 1/4, 128ch
+        self.stage1 = nn.Sequential(features[2], features[3])  # 1/8, 256ch
+        self.stage2 = nn.Sequential(features[4], features[5])  # 1/16, 512ch
+        self.stage3 = nn.Sequential(features[6], features[7])  # 1/32, 1024ch
+        
+        self.cbam_low = CBAM(128)
+        self.cbam_mid = CBAM(256)
+        self.cbam_high = CBAM(512)
+        self.cbam_deep = CBAM(1024)
+        
+        self.low_channels = 128
+        self.mid_channels = 256
+        self.high_channels = 512
+        self.deep_channels = 1024
+        
+    def forward(self, x):
+        f0 = self.stage0(x)
+        low = self.cbam_low(f0)
+        
+        f1 = self.stage1(f0)
+        mid = self.cbam_mid(f1)
+        
+        f2 = self.stage2(f1)
+        high = self.cbam_high(f2)
+        
+        f3 = self.stage3(f2)
+        deep = self.cbam_deep(f3)
+        return {'low': low, 'mid': mid, 'high': high, 'deep': deep}
+
+
 if __name__ == '__main__':
     # Quick test
-    model = MobileNetV2Backbone(pretrained=False)
-    x = torch.randn(2, 3, 512, 512)
+    model = ConvNeXtBaseBackbone(pretrained=False)
+    x = torch.randn(2, 3, 256, 256)
     features = model(x)
     for k, v in features.items():
         print(f"{k}: {v.shape}")
     
     total_params = sum(p.numel() for p in model.parameters())
-    print(f"Total MobileNetV2 backbone params: {total_params / 1e6:.2f}M")
+    print(f"Total ConvNeXt-Base backbone params: {total_params / 1e6:.2f}M")
