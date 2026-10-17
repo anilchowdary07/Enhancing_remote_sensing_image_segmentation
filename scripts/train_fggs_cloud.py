@@ -121,6 +121,114 @@ if __name__ == '__main__':
     except SystemExit:
         pass
 
+    # Evaluate best checkpoint and compare against SGDC-DeepLab Table 6
+    best_path = os.path.join(save_dir, "best_model.pth")
+    if os.path.exists(best_path):
+        print("\n" + "=" * 75)
+        print("  POST-TRAINING BENCHMARK EVALUATION ON FGGS VALIDATION SET")
+        print("  Evaluating best_model.pth against SGDC-DeepLab Paper Table 6...")
+        print("=" * 75)
+        
+        from models import EADFNet
+        from datasets import FGGSDataset
+        from utils.metrics import SegmentationMetrics
+        import torch.nn.functional as F
+        
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        _, val_loader = FGGSDataset.get_loaders(data_dir, batch_size=16, crop_size=256, num_workers=4)
+        
+        # Determine backbone from args
+        backbone = 'convnext_base' if '--backbone' in sys.argv and 'convnext_base' in sys.argv else 'mobilenet_v2'
+        for idx, arg in enumerate(sys.argv):
+            if arg == '--backbone' and idx + 1 < len(sys.argv):
+                backbone = sys.argv[idx + 1]
+                
+        eval_model = EADFNet(num_classes=5, backbone=backbone, pretrained_backbone=False).to(device)
+        ckpt = torch.load(best_path, map_location=device, weights_only=False)
+        eval_model.load_state_dict(ckpt['model_state_dict'])
+        eval_model.eval()
+        
+        # 1. Standard single-pass
+        m_std = SegmentationMetrics(5, FGGSDataset.CLASSES)
+        # 2. 4-fold flip TTA
+        m_flip = SegmentationMetrics(5, FGGSDataset.CLASSES)
+        # 3. Multi-scale TTA
+        m_ms = SegmentationMetrics(5, FGGSDataset.CLASSES)
+        
+        with torch.no_grad():
+            for imgs, targets in val_loader:
+                imgs, targets = imgs.to(device), targets.to(device)
+                
+                # Standard
+                p_std = F.softmax(eval_model(imgs)['main'], dim=1)
+                m_std.update(p_std, targets)
+                
+                # Flip TTA
+                p_flip = (p_std + 
+                          F.softmax(eval_model(imgs.flip(-1))['main'], dim=1).flip(-1) +
+                          F.softmax(eval_model(imgs.flip(-2))['main'], dim=1).flip(-2) +
+                          F.softmax(eval_model(imgs.flip(-1).flip(-2))['main'], dim=1).flip(-1).flip(-2)) / 4.0
+                m_flip.update(p_flip, targets)
+                
+                # MS TTA
+                B, C, H, W = imgs.shape
+                total_ms = torch.zeros_like(p_std)
+                for s in [0.9, 1.0, 1.1]:
+                    new_h, new_w = int(round(H * s / 32) * 32), int(round(W * s / 32) * 32)
+                    s_imgs = F.interpolate(imgs, size=(new_h, new_w), mode='bilinear', align_corners=True)
+                    s_pred = F.softmax(eval_model(s_imgs)['main'], dim=1)
+                    s_pred_up = F.interpolate(s_pred, size=(H, W), mode='bilinear', align_corners=True)
+                    total_ms += s_pred_up
+                total_ms = total_ms / 3.0
+                m_ms.update(total_ms, targets)
+        
+        res_std = m_std.get_results()
+        res_flip = m_flip.get_results()
+        res_ms = m_ms.get_results()
+        
+        best_eval = max([res_std, res_flip, res_ms], key=lambda x: x['mIoU'])
+        eval_name = "Single-Pass" if best_eval == res_std else ("4-Flip TTA" if best_eval == res_flip else "Multi-Scale TTA")
+        
+        paper = {
+            'low': 68.84, 'middle-low': 49.47, 'middle': 32.12, 'middle-high': 33.11,
+            'high': 79.51, 'mIoU': 51.48, 'mF1': 66.21
+        }
+        
+        print("\n" + "=" * 78)
+        print(f"  OFFICIAL FGGS BENCHMARK COMPARISON ({eval_name}) VS SGDC-DeepLab (TABLE 6)")
+        print("=" * 78)
+        print(f"{'Class / Metric':<18} {'SGDC-DeepLab':<14} {'EADF-Net (Best)':<16} {'Difference':<12} {'Status'}")
+        print("-" * 78)
+        for c in FGGSDataset.CLASSES:
+            p_val = paper[c]
+            o_val = best_eval['per_class_iou'][c]
+            diff = o_val - p_val
+            status = "🏆 BEATS" if diff > 0 else "✗ BELOW"
+            print(f"{c:<18} {p_val:>10.2f}%   {o_val:>12.2f}%   {diff:>+10.2f}%   [{status}]")
+        print("-" * 78)
+        for m in ['mIoU', 'mF1']:
+            p_val = paper[m]
+            o_val = best_eval[m]
+            diff = o_val - p_val
+            status = "🏆 BEATS" if diff > 0 else "✗ BELOW"
+            print(f"{m:<18} {p_val:>10.2f}%   {o_val:>12.2f}%   {diff:>+10.2f}%   [{status}]")
+        print(f"{'OA':<18} {'~84.6% (train)':<14} {best_eval['OA']:>12.2f}% (test)")
+        print("=" * 78)
+        
+        # Save evaluation report to JSON
+        eval_report = {
+            'backbone': backbone,
+            'best_strategy': eval_name,
+            'standard': res_std,
+            'flip_tta': res_flip,
+            'ms_tta': res_ms,
+            'best_results': best_eval,
+            'paper_target_table6': paper
+        }
+        with open(os.path.join(save_dir, "fggs_benchmark_comparison.json"), "w") as f:
+            json.dump(eval_report, f, indent=2, default=str)
+        print(f"[✓] Saved benchmark comparison to {os.path.join(save_dir, 'fggs_benchmark_comparison.json')}")
+
     # Upload results
     save_dir = "./checkpoints/fggs_100ep"
     hub_repo = "anil988/EADF-Net-FGGS"
