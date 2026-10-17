@@ -121,6 +121,15 @@ if __name__ == '__main__':
     except SystemExit:
         pass
 
+    # Parse save_dir and hub_repo
+    save_dir = "./checkpoints/fggs_100ep"
+    hub_repo = "anil988/EADF-Net-FGGS"
+    for idx, arg in enumerate(sys.argv):
+        if arg == '--save_dir' and idx + 1 < len(sys.argv):
+            save_dir = sys.argv[idx + 1]
+        elif arg == '--hub_repo' and idx + 1 < len(sys.argv):
+            hub_repo = sys.argv[idx + 1]
+
     # Evaluate best checkpoint and compare against SGDC-DeepLab Table 6
     best_path = os.path.join(save_dir, "best_model.pth")
     if os.path.exists(best_path):
@@ -229,14 +238,6 @@ if __name__ == '__main__':
             json.dump(eval_report, f, indent=2, default=str)
         print(f"[✓] Saved benchmark comparison to {os.path.join(save_dir, 'fggs_benchmark_comparison.json')}")
 
-    # Upload results
-    save_dir = "./checkpoints/fggs_100ep"
-    hub_repo = "anil988/EADF-Net-FGGS"
-    for idx, arg in enumerate(sys.argv):
-        if arg == '--save_dir' and idx + 1 < len(sys.argv):
-            save_dir = sys.argv[idx + 1]
-        elif arg == '--hub_repo' and idx + 1 < len(sys.argv):
-            hub_repo = sys.argv[idx + 1]
-
+    # Upload results to Hub
     if os.path.exists(save_dir):
         upload_to_hub(save_dir, repo_id=hub_repo)
