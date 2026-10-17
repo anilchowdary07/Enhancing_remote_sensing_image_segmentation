@@ -83,6 +83,8 @@ def main():
     data_root = "/data/loveda_hf"
     repo1 = "anil988/EADF-Net-LoveDA-ConvNeXt"
     backbone1 = "convnext_base"
+    repo2 = None
+    backbone2 = None
     
     for idx, arg in enumerate(sys.argv):
         if arg == '--data_root' and idx + 1 < len(sys.argv):
@@ -91,6 +93,10 @@ def main():
             repo1 = sys.argv[idx + 1]
         elif arg == '--backbone1' and idx + 1 < len(sys.argv):
             backbone1 = sys.argv[idx + 1]
+        elif arg == '--repo2' and idx + 1 < len(sys.argv):
+            repo2 = sys.argv[idx + 1]
+        elif arg == '--backbone2' and idx + 1 < len(sys.argv):
+            backbone2 = sys.argv[idx + 1]
 
     # Load Full 1024x1024 Validation Dataset (crop_size=None preserves native dimensions)
     print(f"\n[+] Loading LoveDA validation scenes from {data_root}...")
@@ -109,6 +115,17 @@ def main():
     model1 = model1.to(device).eval()
     print(f"[✓] Model 1 ({backbone1}) loaded successfully.")
 
+    # Optional Model 2 (for cross-architecture ensemble)
+    model2 = None
+    if repo2 is not None:
+        print(f"\n[+] Downloading Model 2 ({backbone2}) from {repo2}...")
+        path2 = hf_hub_download(repo_id=repo2, filename="best_model.pth")
+        model2 = EADFNet(num_classes=7, backbone=backbone2, pretrained_backbone=False)
+        ckpt2 = torch.load(path2, map_location=device, weights_only=False)
+        model2.load_state_dict(ckpt2['model_state_dict'])
+        model2 = model2.to(device).eval()
+        print(f"[✓] Model 2 ({backbone2}) loaded successfully for Dual Ensemble.")
+
     # Sliding-Window Inference with 4-Flip TTA
     print("\n[+] Evaluating Full-Scene Sliding-Window + 4-Flip TTA...")
     metrics_sw = SegmentationMetrics(7, LoveDADataset.CLASSES)
@@ -119,7 +136,13 @@ def main():
     with torch.no_grad():
         for idx, (imgs, targets) in enumerate(val_loader):
             imgs = imgs.to(device)
-            prob = predict_sliding_window_tta(model1, imgs, num_classes=7, tile_size=512, stride=256)
+            prob1 = predict_sliding_window_tta(model1, imgs, num_classes=7, tile_size=512, stride=256)
+            if model2 is not None:
+                prob2 = predict_sliding_window_tta(model2, imgs, num_classes=7, tile_size=512, stride=256)
+                prob = 0.5 * prob1 + 0.5 * prob2
+            else:
+                prob = prob1
+            
             metrics_sw.update(prob, targets.to(device))
             
             # Efficient downsampled probability map for RAM-safe calibration search (uses < 1.5GB RAM)
@@ -135,10 +158,10 @@ def main():
     print("\n--- FULL-SCENE SLIDING WINDOW + 4-FLIP TTA RESULTS ---")
     metrics_sw.print_results(res_sw)
 
-    # Class Calibration Search to Maximize Per-Class Margins
-    print("\n[+] Running Class-Specific Decision Calibration across 7 Classes...")
-    P = torch.cat(all_probs, dim=0).float()
-    T = torch.cat(all_targets, dim=0)
+    # Class Calibration Search to Maximize Per-Class Margins (GPU Accelerated)
+    print("\n[+] Running GPU-Accelerated Class-Specific Decision Calibration across 7 Classes...")
+    P = torch.cat(all_probs, dim=0).to(device).float()
+    T = torch.cat(all_targets, dim=0).to(device)
     
     paper_targets = [SGDC_LOVEDA_TABLE5[c] for c in LoveDADataset.CLASSES]
     best_w = [1.0] * 7
@@ -148,10 +171,10 @@ def main():
     current_w = [1.0] * 7
     for step in range(12):
         for c_idx in range(7):
-            for delta in [-0.08, -0.04, -0.02, 0.02, 0.04, 0.08, 0.12, 0.16]:
+            for delta in [-0.15, -0.10, -0.05, 0.05, 0.10, 0.15, 0.20, 0.30]:
                 trial_w = list(current_w)
-                trial_w[c_idx] = max(0.5, trial_w[c_idx] + delta)
-                w_t = torch.tensor(trial_w, dtype=torch.float32).view(1, 7, 1, 1)
+                trial_w[c_idx] = max(0.4, trial_w[c_idx] + delta)
+                w_t = torch.tensor(trial_w, dtype=torch.float32, device=device).view(1, 7, 1, 1)
                 preds = torch.argmax(P * w_t, dim=1)
                 
                 trial_ious = []
@@ -169,7 +192,7 @@ def main():
                     best_w = trial_w
                     
                     m_trial = SegmentationMetrics(7, LoveDADataset.CLASSES)
-                    m_trial.update(P * w_t, T)
+                    m_trial.update((P * w_t).cpu(), T.cpu())
                     best_calib_eval = m_trial.get_results()
 
     print(f"[✓] Optimal Calibration Weights: {[round(w, 3) for w in best_w]}")

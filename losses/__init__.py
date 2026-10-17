@@ -280,9 +280,10 @@ class CompoundLoss(nn.Module):
         
         # Calibrated class weights for LoveDA:
         # [background, building, road, water, barren, forest, agriculture]
-        # Gentle boost to minority classes without penalizing/starving majority classes
+        # Suppress majority background (0.6) to prevent stealing boundary pixels;
+        # boost road (1.8), forest (2.2), agriculture (1.8), barren (1.5), water (1.2)
         if class_weights is None and num_classes == 7:
-            class_weights = [1.0, 1.3, 1.2, 1.0, 1.4, 1.2, 1.0]
+            class_weights = [0.6, 1.1, 1.8, 1.2, 1.5, 2.2, 1.8]
         elif class_weights is None and num_classes == 5:
             # Calibrated class weights for FGGS:
             # [low, middle-low, middle, middle-high, high]
