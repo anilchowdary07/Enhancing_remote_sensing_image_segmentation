@@ -55,11 +55,13 @@ def predict_sliding_window_tta(model, x, num_classes=7, tile_size=512, stride=25
         for xs in x_starts:
             tile = x[:, :, ys:ys+tile_size, xs:xs+tile_size]
             with torch.no_grad():
-                # 4-fold flip TTA
-                p1 = F.softmax(model(tile)['main'], dim=1)
-                p2 = F.softmax(model(tile.flip(-1))['main'], dim=1).flip(-1)
-                p3 = F.softmax(model(tile.flip(-2))['main'], dim=1).flip(-2)
-                p4 = F.softmax(model(tile.flip(-1).flip(-2))['main'], dim=1).flip(-1).flip(-2)
+                # Batched 4-fold flip TTA in a single forward pass
+                batch_tiles = torch.cat([tile, tile.flip(-1), tile.flip(-2), tile.flip(-1).flip(-2)], dim=0)
+                preds = F.softmax(model(batch_tiles)['main'], dim=1)
+                p1 = preds[0:1]
+                p2 = preds[1:2].flip(-1)
+                p3 = preds[2:3].flip(-2)
+                p4 = preds[3:4].flip(-1).flip(-2)
                 out = (p1 + p2 + p3 + p4) / 4.0
                     
             total_probs[:, :, ys:ys+tile_size, xs:xs+tile_size] += out * weight
@@ -119,8 +121,12 @@ def main():
             imgs = imgs.to(device)
             prob = predict_sliding_window_tta(model1, imgs, num_classes=7, tile_size=512, stride=256)
             metrics_sw.update(prob, targets.to(device))
-            all_probs.append(prob.cpu())
-            all_targets.append(targets.cpu())
+            
+            # Efficient downsampled probability map for RAM-safe calibration search (uses < 1.5GB RAM)
+            prob_sub = F.interpolate(prob, size=(256, 256), mode='bilinear', align_corners=False).cpu().to(torch.float16)
+            target_sub = F.interpolate(targets.unsqueeze(1).float(), size=(256, 256), mode='nearest').squeeze(1).long().cpu()
+            all_probs.append(prob_sub)
+            all_targets.append(target_sub)
             
             if (idx + 1) % 25 == 0 or (idx + 1) == len(val_loader):
                 print(f"  Evaluated [{idx + 1}/{len(val_loader)}] scenes...", flush=True)
@@ -131,7 +137,7 @@ def main():
 
     # Class Calibration Search to Maximize Per-Class Margins
     print("\n[+] Running Class-Specific Decision Calibration across 7 Classes...")
-    P = torch.cat(all_probs, dim=0)
+    P = torch.cat(all_probs, dim=0).float()
     T = torch.cat(all_targets, dim=0)
     
     paper_targets = [SGDC_LOVEDA_TABLE5[c] for c in LoveDADataset.CLASSES]
