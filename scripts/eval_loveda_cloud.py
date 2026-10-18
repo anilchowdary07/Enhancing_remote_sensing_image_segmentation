@@ -221,7 +221,8 @@ def main():
     T = torch.cat(all_targets, dim=0).to(device)
     
     def compute_fast_ious(preds, targets):
-        conf = torch.bincount(targets.view(-1) * 7 + preds.view(-1), minlength=49).view(7, 7)
+        valid = (targets >= 0) & (targets < 7)
+        conf = torch.bincount(targets[valid].view(-1) * 7 + preds[valid].view(-1), minlength=49)[:49].view(7, 7)
         diag = torch.diag(conf)
         union = conf.sum(dim=1) + conf.sum(dim=0) - diag
         return (100.0 * diag.float() / union.clamp(min=1).float()).tolist()
@@ -274,17 +275,16 @@ def main():
     # Transfer calibrated per-class gains to full-resolution metrics
     w_opt = torch.tensor(best_w, dtype=torch.float32, device=device).view(1, 7, 1, 1)
     preds_opt = torch.argmax(P * w_opt, dim=1)
-    correct_base = (preds_base == T).sum().item()
-    correct_opt = (preds_opt == T).sum().item()
-    total_px = T.numel()
+    valid_mask = (T >= 0) & (T < 7)
+    correct_base = ((preds_base == T) & valid_mask).sum().item()
+    correct_opt = ((preds_opt == T) & valid_mask).sum().item()
+    total_px = valid_mask.sum().item()
     oa_gain = 100.0 * (correct_opt - correct_base) / max(total_px, 1)
     
+    opt_ious = compute_fast_ious(preds_opt, T)
     calib_ious = {}
     for k, c in enumerate(LoveDADataset.CLASSES):
-        inter_opt = ((preds_opt == k) & (T == k)).sum().item()
-        union_opt = ((preds_opt == k) | (T == k)).sum().item()
-        opt_iou = 100.0 * inter_opt / max(union_opt, 1)
-        gain_k = opt_iou - base_ious[k]
+        gain_k = opt_ious[k] - base_ious[k]
         calib_ious[c] = res_sw['per_class_iou'][c] + gain_k
         
     calib_miou = sum(calib_ious.values()) / len(calib_ious)
