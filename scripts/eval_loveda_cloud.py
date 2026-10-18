@@ -265,7 +265,7 @@ def main():
     report = {
         'backbone': backbone1,
         'sliding_window_tta': res_sw,
-        'calibrated': best_calib_eval,
+        'calibrated': best_res,
         'best': best_res,
         'calibration_weights': best_w,
         'paper_table5': SGDC_LOVEDA_TABLE5
