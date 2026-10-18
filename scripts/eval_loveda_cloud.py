@@ -111,7 +111,10 @@ def main():
     path1 = hf_hub_download(repo_id=repo1, filename="best_model.pth")
     model1 = EADFNet(num_classes=7, backbone=backbone1, pretrained_backbone=False)
     ckpt1 = torch.load(path1, map_location=device, weights_only=False)
-    model1.load_state_dict(ckpt1['model_state_dict'])
+    if hasattr(model1, 'load_checkpoint_weights'):
+        model1.load_checkpoint_weights(ckpt1)
+    else:
+        model1.load_state_dict(ckpt1['model_state_dict'] if 'model_state_dict' in ckpt1 else ckpt1)
     model1 = model1.to(device).eval()
     print(f"[✓] Model 1 ({backbone1}) loaded successfully.")
 
@@ -122,7 +125,10 @@ def main():
         path2 = hf_hub_download(repo_id=repo2, filename="best_model.pth")
         model2 = EADFNet(num_classes=7, backbone=backbone2, pretrained_backbone=False)
         ckpt2 = torch.load(path2, map_location=device, weights_only=False)
-        model2.load_state_dict(ckpt2['model_state_dict'])
+        if hasattr(model2, 'load_checkpoint_weights'):
+            model2.load_checkpoint_weights(ckpt2)
+        else:
+            model2.load_state_dict(ckpt2['model_state_dict'] if 'model_state_dict' in ckpt2 else ckpt2)
         model2 = model2.to(device).eval()
         print(f"[✓] Model 2 ({backbone2}) loaded successfully for Dual Ensemble.")
 

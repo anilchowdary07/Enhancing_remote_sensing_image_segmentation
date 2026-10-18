@@ -198,6 +198,26 @@ class EADFNet(nn.Module):
         for param in self.backbone.parameters():
             param.requires_grad = True
 
+    def load_checkpoint_weights(self, state_dict, strict=False):
+        """
+        Robust checkpoint loading with automatic adaptation of legacy single-conv
+        classifier weights into the DualExpertHead architecture.
+        """
+        if isinstance(state_dict, dict) and 'model_state_dict' in state_dict:
+            state_dict = state_dict['model_state_dict']
+        
+        # If checkpoint has old classifier format, adapt to DualExpertHead
+        if 'decoder.classifier.weight' in state_dict and hasattr(self.decoder.classifier, 'init_from_legacy'):
+            print("    [+] Adapting legacy single classifier weights into DualExpertHead...")
+            self.decoder.classifier.init_from_legacy(
+                state_dict['decoder.classifier.weight'],
+                state_dict['decoder.classifier.bias']
+            )
+            # Filter out old keys so strict=False doesn't warn and no overwrite occurs
+            state_dict = {k: v for k, v in state_dict.items() if not k.startswith('decoder.classifier.')}
+            
+        return self.load_state_dict(state_dict, strict=strict)
+
 
 def count_parameters(model):
     """Count model parameters and FLOPs estimation."""

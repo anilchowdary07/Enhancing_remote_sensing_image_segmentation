@@ -44,6 +44,12 @@ if __name__ == '__main__':
     else:
         print("  [!] Warning: CUDA GPU not detected, running on CPU")
 
+    # Check for --init_repo
+    init_repo = "anil988/EADF-Net-LoveDA-ConvNeXt"
+    for idx, arg in enumerate(sys.argv):
+        if arg == '--init_repo' and idx + 1 < len(sys.argv):
+            init_repo = sys.argv[idx + 1]
+
     # Automatically download init_weights from Hub if needed
     for idx, arg in enumerate(sys.argv):
         if arg == '--init_weights' and idx + 1 < len(sys.argv):
@@ -52,9 +58,9 @@ if __name__ == '__main__':
                 try:
                     from huggingface_hub import hf_hub_download
                     filename = os.path.basename(weights_val)
-                    print(f"\n[+] Downloading {filename} from anil988/EADF-Net-LoveDA...")
+                    print(f"\n[+] Downloading {filename} from {init_repo}...")
                     downloaded_path = hf_hub_download(
-                        repo_id="anil988/EADF-Net-LoveDA",
+                        repo_id=init_repo,
                         filename=filename
                     )
                     sys.argv[idx + 1] = downloaded_path
@@ -101,7 +107,10 @@ if __name__ == '__main__':
         
         eval_model = EADFNet(num_classes=7, backbone=backbone, pretrained_backbone=False).to(device)
         ckpt = torch.load(best_path, map_location=device, weights_only=False)
-        eval_model.load_state_dict(ckpt['model_state_dict'])
+        if hasattr(eval_model, 'load_checkpoint_weights'):
+            eval_model.load_checkpoint_weights(ckpt)
+        else:
+            eval_model.load_state_dict(ckpt['model_state_dict'] if 'model_state_dict' in ckpt else ckpt)
         eval_model.eval()
         
         m_eval = SegmentationMetrics(7, LoveDADataset.CLASSES)

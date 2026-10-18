@@ -137,6 +137,8 @@ def parse_args():
     # Checkpointing & Resuming
     parser.add_argument('--init_weights', type=str, default=None,
                        help='Path to weights (.pth) to initialize model from')
+    parser.add_argument('--init_repo', type=str, default=None,
+                       help='Hugging Face repository to download init_weights from')
     parser.add_argument('--resume', type=str, default=None,
                        help='Path to checkpoint (.pth) to resume training from')
     
@@ -354,8 +356,11 @@ def main():
     if args.init_weights and os.path.exists(args.init_weights):
         print(f"\n[+] Loading model weights from: {args.init_weights}")
         ckpt = torch.load(args.init_weights, map_location=device, weights_only=False)
-        state_dict = ckpt['model_state_dict'] if 'model_state_dict' in ckpt else ckpt
-        msg = model.load_state_dict(state_dict, strict=False)
+        if hasattr(model, 'load_checkpoint_weights'):
+            msg = model.load_checkpoint_weights(ckpt, strict=False)
+        else:
+            state_dict = ckpt['model_state_dict'] if 'model_state_dict' in ckpt else ckpt
+            msg = model.load_state_dict(state_dict, strict=False)
         print(f"    Successfully loaded weights: {msg}")
     
     if args.resume and os.path.exists(args.resume):
