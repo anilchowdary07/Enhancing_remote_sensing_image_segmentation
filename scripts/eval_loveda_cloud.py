@@ -151,7 +151,7 @@ def main():
     print(f"\n[+] Loading LoveDA validation scenes from {data_root}...")
     val_dataset = LoveDADataset(data_root, split='Val', crop_size=None, augment=False)
     val_loader = torch.utils.data.DataLoader(
-        val_dataset, batch_size=1, shuffle=False, num_workers=4, pin_memory=True
+        val_dataset, batch_size=1, shuffle=False, num_workers=2, pin_memory=True
     )
     print(f"[✓] Loaded {len(val_dataset)} native full-scene validation images (1024x1024).")
 

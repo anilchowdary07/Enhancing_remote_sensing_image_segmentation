@@ -13,6 +13,7 @@ Includes comprehensive data augmentation strategies:
 """
 
 import os
+import time
 import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -177,10 +178,17 @@ class LoveDADataset(Dataset):
             image = color_jitter(image)
         
         return image, mask
-    
     def __getitem__(self, idx):
-        image = Image.open(self.images[idx]).convert('RGB')
-        mask = Image.open(self.masks[idx])
+        # Network-resilient image and mask loading with automatic retries for cloud mounted volumes
+        for retry in range(5):
+            try:
+                image = Image.open(self.images[idx]).convert('RGB')
+                mask = Image.open(self.masks[idx])
+                break
+            except Exception as e:
+                if retry == 4:
+                    raise e
+                time.sleep(1.0)
         
         if self.augment:
             image, mask = self._augment(image, mask)
@@ -351,8 +359,15 @@ class FGGSDataset(Dataset):
         return image, mask
     
     def __getitem__(self, idx):
-        image = Image.open(self.images[idx]).convert('RGB')
-        mask = Image.open(self.masks[idx])
+        for retry in range(5):
+            try:
+                image = Image.open(self.images[idx]).convert('RGB')
+                mask = Image.open(self.masks[idx])
+                break
+            except Exception as e:
+                if retry == 4:
+                    raise e
+                time.sleep(1.0)
         
         if self.augment:
             image, mask = self._augment(image, mask)
