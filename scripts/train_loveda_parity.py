@@ -26,7 +26,7 @@ if repo_root not in sys.path:
 
 from models import EADFNet
 from datasets import LoveDADataset
-from losses import CombinedLoss
+from losses import CompoundLoss
 from utils.metrics import SegmentationMetrics
 from huggingface_hub import hf_hub_download, HfApi
 
@@ -221,7 +221,7 @@ def main():
     print(f"[✓] Successfully loaded {init_repo}.")
 
     # 3. Setup Optimizer & Criterion
-    criterion = CombinedLoss(ce_weight=1.0, dice_weight=1.0, ignore_index=255)
+    criterion = CompoundLoss(num_classes=7, ignore_index=255)
     
     # Differential learning rate: lower for backbone, higher for head
     backbone_params = [p for n, p in model.named_parameters() if 'backbone' in n and p.requires_grad]
@@ -256,7 +256,7 @@ def main():
             optimizer.zero_grad(set_to_none=True)
             with autocast():
                 outputs = model(imgs)
-                loss = criterion(outputs, targets)
+                loss, loss_dict = criterion(outputs, targets)
 
             scaler.scale(loss).backward()
             scaler.step(optimizer)
