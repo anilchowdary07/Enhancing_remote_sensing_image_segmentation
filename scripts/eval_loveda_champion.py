@@ -41,43 +41,64 @@ SGDC_LOVEDA_TABLE5 = {
 }
 
 
-def predict_sliding_window_tta(model, x, num_classes=7, tile_size=512, stride=256):
+def predict_quadrants_center_tta(model, x, num_classes=7):
     """
-    Evaluates 1024x1024 scenes using 512x512 overlapping tiles (50% overlap),
-    2D Hann window smooth weighting, and batched 4-fold flip TTA.
+    Fast Full-Scene Tiling (5-Tile Batched Quadrant + Center Overlap with 2-Flip TTA).
+    Evaluates 1024x1024 scenes using:
+    - 4 non-overlapping 512x512 quadrants (full spatial coverage)
+    - 1 center overlapping 512x512 tile [256:768, 256:768] (bridges central cross seams)
+    - 2-fold flip TTA (original + horizontal flip)
+    All 10 tiles run in a single batched forward pass [10, 3, 512, 512] for maximum GPU utilization!
     """
     B, C, H, W = x.shape
-    total_probs = torch.zeros((B, num_classes, H, W), device=x.device)
-    count_map = torch.zeros((B, 1, H, W), device=x.device)
-    
-    h_win = torch.hann_window(tile_size, device=x.device)
-    w_win = torch.hann_window(tile_size, device=x.device)
-    weight = (h_win[:, None] * w_win[None, :]).unsqueeze(0).unsqueeze(0).clamp(min=1e-4)
-    
-    y_starts = list(range(0, H - tile_size + 1, stride))
-    if len(y_starts) == 0 or y_starts[-1] != H - tile_size:
-        y_starts.append(max(0, H - tile_size))
-    x_starts = list(range(0, W - tile_size + 1, stride))
-    if len(x_starts) == 0 or x_starts[-1] != W - tile_size:
-        x_starts.append(max(0, W - tile_size))
-        
-    for ys in y_starts:
-        for xs in x_starts:
-            tile = x[:, :, ys:ys+tile_size, xs:xs+tile_size]
-            with torch.no_grad():
-                # Batched 4-fold flip TTA in a single forward pass
-                batch_tiles = torch.cat([tile, tile.flip(-1), tile.flip(-2), tile.flip(-1).flip(-2)], dim=0)
-                preds = F.softmax(model(batch_tiles)['main'], dim=1)
-                p1 = preds[0:1]
-                p2 = preds[1:2].flip(-1)
-                p3 = preds[2:3].flip(-2)
-                p4 = preds[3:4].flip(-1).flip(-2)
-                out = (p1 + p2 + p3 + p4) / 4.0
-                    
-            total_probs[:, :, ys:ys+tile_size, xs:xs+tile_size] += out * weight
-            count_map[:, :, ys:ys+tile_size, xs:xs+tile_size] += weight
-            
+    if H != 1024 or W != 1024:
+        x = F.interpolate(x, size=(1024, 1024), mode='bilinear', align_corners=False)
+        H, W = 1024, 1024
+
+    # Extract 5 tiles: 4 quadrants + 1 center
+    q0 = x[:, :, 0:512, 0:512]
+    q1 = x[:, :, 0:512, 512:1024]
+    q2 = x[:, :, 512:1024, 0:512]
+    q3 = x[:, :, 512:1024, 512:1024]
+    q4 = x[:, :, 256:768, 256:768]
+    tiles = torch.cat([q0, q1, q2, q3, q4], dim=0)  # [5, 3, 512, 512]
+
+    # Batched 2-flip TTA: [10, 3, 512, 512]
+    batch_tiles = torch.cat([tiles, tiles.flip(-1)], dim=0)
+
+    with torch.no_grad():
+        preds = model(batch_tiles)['main']  # [10, 7, 512, 512]
+        probs = F.softmax(preds, dim=1)
+        p_orig = probs[:5]
+        p_flip = probs[5:].flip(-1)
+        p = (p_orig + p_flip) * 0.5  # [5, 7, 512, 512]
+
+    total_probs = torch.zeros((1, num_classes, 1024, 1024), device=x.device, dtype=p.dtype)
+    count_map = torch.zeros((1, 1, 1024, 1024), device=x.device, dtype=p.dtype)
+
+    # Place 4 quadrants
+    total_probs[:, :, 0:512, 0:512] += p[0:1]
+    count_map[:, :, 0:512, 0:512] += 1.0
+
+    total_probs[:, :, 0:512, 512:1024] += p[1:2]
+    count_map[:, :, 0:512, 512:1024] += 1.0
+
+    total_probs[:, :, 512:1024, 0:512] += p[2:3]
+    count_map[:, :, 512:1024, 0:512] += 1.0
+
+    total_probs[:, :, 512:1024, 512:1024] += p[3:4]
+    count_map[:, :, 512:1024, 512:1024] += 1.0
+
+    # Center tile blended with 2D Hann window
+    h_win = torch.hann_window(512, device=x.device)
+    w_win = torch.hann_window(512, device=x.device)
+    center_weight = (h_win[:, None] * w_win[None, :]).unsqueeze(0).unsqueeze(0).clamp(min=1e-3)
+
+    total_probs[:, :, 256:768, 256:768] += p[4:5] * center_weight
+    count_map[:, :, 256:768, 256:768] += center_weight
+
     return total_probs / count_map
+
 
 
 def refine_predictions(prob, imgs):
@@ -218,8 +239,8 @@ def main():
         raise RuntimeError("No models could be loaded!")
     print(f"[✓] Ensembling {len(models)} model(s) for inference.")
 
-    # Sliding-Window Inference with 4-Flip TTA
-    print("\n[+] Running Full-Scene Overlapped Sliding-Window + 4-Flip TTA...")
+    # 5-Tile Batched Quadrant + Center Overlap Inference with 2-Flip TTA
+    print("\n[+] Running Full-Scene 5-Tile Batched Quadrant + Center Overlap + 2-Flip TTA...")
     metrics_sw = SegmentationMetrics(7, LoveDADataset.CLASSES)
     
     all_probs = []
@@ -232,7 +253,7 @@ def main():
             # Multi-model ensemble probability
             prob_sum = None
             for m in models:
-                p_m = predict_sliding_window_tta(m, imgs, num_classes=7, tile_size=512, stride=256)
+                p_m = predict_quadrants_center_tta(m, imgs, num_classes=7)
                 if prob_sum is None:
                     prob_sum = p_m
                 else:
@@ -243,13 +264,13 @@ def main():
             prob = refine_predictions(prob, imgs)
             metrics_sw.update(prob, targets.to(device))
             
-            # Downsample for GPU-accelerated domain calibration search
-            prob_sub = F.interpolate(prob, size=(512, 512), mode='bilinear', align_corners=False).cpu().to(torch.float16)
-            target_sub = F.interpolate(targets.unsqueeze(1).float(), size=(512, 512), mode='nearest').squeeze(1).long().cpu()
+            # Downsample to 256x256 for fast GPU-accelerated domain calibration search (1.5GB RAM)
+            prob_sub = F.interpolate(prob, size=(256, 256), mode='bilinear', align_corners=False).cpu().to(torch.float16)
+            target_sub = F.interpolate(targets.unsqueeze(1).float(), size=(256, 256), mode='nearest').squeeze(1).long().cpu()
             all_probs.append(prob_sub)
             all_targets.append(target_sub)
             
-            if (idx + 1) % 25 == 0 or (idx + 1) == len(val_loader):
+            if (idx + 1) % 50 == 0 or (idx + 1) == len(val_loader):
                 print(f"  Evaluated [{idx + 1}/{len(val_loader)}] scenes...", flush=True)
 
     res_sw = metrics_sw.get_results()
