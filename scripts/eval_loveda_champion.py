@@ -227,8 +227,9 @@ def main():
     print(f"  Domain breakdown: {sum(is_urban_list)} Urban scenes | {len(is_urban_list) - sum(is_urban_list)} Rural scenes.")
 
     # Load models
+    repo_list = [r for r in [repo1, repo2, repo3] if r and r.lower() != 'none']
     models = []
-    for r in [repo1, repo2, repo3]:
+    for r in repo_list:
         try:
             m = load_model(r, backbone=backbone, device=device)
             models.append(m)
