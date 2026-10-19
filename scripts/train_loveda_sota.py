@@ -260,10 +260,12 @@ def main():
                 optimizer.zero_grad()
                 ema.update(model)
                 
-            loss_meter.update(loss.item(), images.size(0))
+            loss_meter.update(loss.item() if hasattr(loss, 'item') else float(loss), images.size(0))
             for k in loss_components:
                 if k in loss_dict:
-                    loss_components[k].update(loss_dict[k].item(), images.size(0))
+                    val = loss_dict[k]
+                    val = val.item() if hasattr(val, 'item') else float(val)
+                    loss_components[k].update(val, images.size(0))
                     
         scheduler.step()
         epoch_time = time.time() - epoch_start
