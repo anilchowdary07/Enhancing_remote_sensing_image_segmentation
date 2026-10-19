@@ -77,34 +77,75 @@ class LoveDADataset(Dataset):
         self.images = []
         self.masks = []
         
-        # Check HuggingFace layout first, then fallback to standard layout
-        hf_train_img = os.path.join(root, 'urban:rural train images')
-        hf_val_img   = os.path.join(root, 'urban:rural val images')
-        if (split.lower() == 'train' and os.path.exists(hf_train_img)) or (split.lower() != 'train' and os.path.exists(hf_val_img)):
-            if split.lower() == 'train':
-                img_dir  = hf_train_img
-                mask_dir = os.path.join(root, 'urban:rural train masks')
+        is_parity = 'parity' in split.lower() or 'random' in split.lower()
+        if is_parity:
+            all_imgs = []
+            all_msks = []
+            hf_train_img = os.path.join(root, 'urban:rural train images')
+            hf_val_img   = os.path.join(root, 'urban:rural val images')
+            if os.path.exists(hf_train_img) and os.path.exists(hf_val_img):
+                t_img = hf_train_img
+                t_msk = os.path.join(root, 'urban:rural train masks')
+                v_img = hf_val_img
+                v_msk = os.path.join(root, 'urban:rural val masks')
+                for d_img, d_msk in [(t_img, t_msk), (v_img, v_msk)]:
+                    for fname in sorted(os.listdir(d_img)):
+                        if fname.endswith('.png'):
+                            all_imgs.append(os.path.join(d_img, fname))
+                            all_msks.append(os.path.join(d_msk, fname))
             else:
-                img_dir  = hf_val_img
-                mask_dir = os.path.join(root, 'urban:rural val masks')
-            
-            if os.path.exists(img_dir):
-                for fname in sorted(os.listdir(img_dir)):
-                    if fname.endswith('.png'):
-                        self.images.append(os.path.join(img_dir, fname))
-                        self.masks.append(os.path.join(mask_dir, fname))
+                for sp in ['Train', 'Val']:
+                    for sc in ['Urban', 'Rural']:
+                        d_img = os.path.join(root, sp, sc, 'images_png')
+                        d_msk = os.path.join(root, sp, sc, 'masks_png')
+                        if os.path.exists(d_img):
+                            for fname in sorted(os.listdir(d_img)):
+                                if fname.endswith('.png'):
+                                    all_imgs.append(os.path.join(d_img, fname))
+                                    all_msks.append(os.path.join(d_msk, fname))
+
+            # Deterministic 90/10 random shuffle matching voc_annotation.py
+            pairs = list(zip(all_imgs, all_msks))
+            rng = random.Random(2024)
+            rng.shuffle(pairs)
+            split_idx = int(len(pairs) * 0.90)
+            if 'train' in split.lower():
+                selected_pairs = pairs[:split_idx]
+                self.augment = augment
+            else:
+                selected_pairs = pairs[split_idx:]
+                self.augment = False
+            self.images = [p[0] for p in selected_pairs]
+            self.masks = [p[1] for p in selected_pairs]
         else:
-            for scene in ['Urban', 'Rural']:
-                img_dir = os.path.join(root, split, scene, 'images_png')
-                mask_dir = os.path.join(root, split, scene, 'masks_png')
+            # Check HuggingFace layout first, then fallback to standard layout
+            hf_train_img = os.path.join(root, 'urban:rural train images')
+            hf_val_img   = os.path.join(root, 'urban:rural val images')
+            if (split.lower() == 'train' and os.path.exists(hf_train_img)) or (split.lower() != 'train' and os.path.exists(hf_val_img)):
+                if split.lower() == 'train':
+                    img_dir  = hf_train_img
+                    mask_dir = os.path.join(root, 'urban:rural train masks')
+                else:
+                    img_dir  = hf_val_img
+                    mask_dir = os.path.join(root, 'urban:rural val masks')
                 
-                if not os.path.exists(img_dir):
-                    continue
-                
-                for fname in sorted(os.listdir(img_dir)):
-                    if fname.endswith('.png'):
-                        self.images.append(os.path.join(img_dir, fname))
-                        self.masks.append(os.path.join(mask_dir, fname))
+                if os.path.exists(img_dir):
+                    for fname in sorted(os.listdir(img_dir)):
+                        if fname.endswith('.png'):
+                            self.images.append(os.path.join(img_dir, fname))
+                            self.masks.append(os.path.join(mask_dir, fname))
+            else:
+                for scene in ['Urban', 'Rural']:
+                    img_dir = os.path.join(root, split, scene, 'images_png')
+                    mask_dir = os.path.join(root, split, scene, 'masks_png')
+                    
+                    if not os.path.exists(img_dir):
+                        continue
+                    
+                    for fname in sorted(os.listdir(img_dir)):
+                        if fname.endswith('.png'):
+                            self.images.append(os.path.join(img_dir, fname))
+                            self.masks.append(os.path.join(mask_dir, fname))
         
         # Fast subsampling if requested
         if max_samples is not None and max_samples < len(self.images):
