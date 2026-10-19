@@ -182,8 +182,27 @@ def main():
     )
     print(f"[✓] Loaded {len(val_dataset)} native full-scene validation images (1024x1024).")
 
-    # Record Urban vs Rural domain for each scene
-    is_urban_list = ['urban' in p.lower() for p in val_dataset.images]
+    # Record Urban vs Rural domain for each scene based on official LoveDA ID splits:
+    # Validation IDs 2522 to 3198 are Urban (677 scenes)
+    # Validation IDs 3199 to 4190 are Rural (992 scenes)
+    def is_urban_scene(p):
+        fname = os.path.basename(p)
+        base = os.path.splitext(fname)[0]
+        if base.isdigit():
+            val = int(base)
+            if 2522 <= val <= 3198:
+                return True
+            elif 3199 <= val <= 4190:
+                return False
+        parts = os.path.normpath(p).split(os.sep)
+        for part in parts:
+            if part.lower() == 'urban':
+                return True
+            elif part.lower() == 'rural':
+                return False
+        return False
+
+    is_urban_list = [is_urban_scene(p) for p in val_dataset.images]
     print(f"  Domain breakdown: {sum(is_urban_list)} Urban scenes | {len(is_urban_list) - sum(is_urban_list)} Rural scenes.")
 
     # Load models
@@ -318,12 +337,14 @@ def main():
                     best_r = trial_r
                     improved = True
 
-        # Optimize Urban infrastructure
-        for c_idx in [0, 1, 2, 3, 4]:
+        # Optimize Urban domain weights
+        for c_idx in range(7):
             deltas = [-0.15, -0.10, -0.05, 0.05, 0.10, 0.15, 0.25]
             for delta in deltas:
                 trial_u = list(current_u)
-                trial_u[c_idx] = max(0.10, min(2.5, trial_u[c_idx] + delta))
+                min_w = 0.02 if c_idx in [5, 6] else 0.10
+                max_w = 1.5 if c_idx in [5, 6] else 2.5
+                trial_u[c_idx] = max(min_w, min(max_w, trial_u[c_idx] + delta))
                 w_ut = torch.tensor(trial_u, dtype=torch.float32, device=device).view(1, 7, 1, 1)
                 
                 P_comb = torch.where(is_urban_tensor.unsqueeze(1), P * w_ut, P * torch.tensor(best_r, device=device).view(1, 7, 1, 1))
