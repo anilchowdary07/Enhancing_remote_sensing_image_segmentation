@@ -74,6 +74,8 @@ class EnhancedAdaptiveFocalLoss(nn.Module):
         focal_weight = (1 - pt) ** self.gamma
         
         # Class-specific alpha weighting
+        if self.alpha.device != target_safe.device:
+            self.alpha = self.alpha.to(target_safe.device)
         alpha_t = self.alpha[target_safe]
         
         # Combined loss

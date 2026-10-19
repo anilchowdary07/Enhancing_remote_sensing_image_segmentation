@@ -221,7 +221,7 @@ def main():
     print(f"[✓] Successfully loaded {init_repo}.")
 
     # 3. Setup Optimizer & Criterion
-    criterion = CompoundLoss(num_classes=7, ignore_index=255)
+    criterion = CompoundLoss(num_classes=7, ignore_index=255).to(device)
     
     # Differential learning rate: lower for backbone, higher for head
     backbone_params = [p for n, p in model.named_parameters() if 'backbone' in n and p.requires_grad]
