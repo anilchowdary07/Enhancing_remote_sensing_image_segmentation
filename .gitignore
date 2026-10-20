@@ -1,7 +1,35 @@
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual Environment
 .venv/
+env/
+venv/
+ENV/
+
+# Data & Checkpoints (downloaded/generated at runtime)
 data/
 checkpoints/
-.DS_Store
+*.pth
+*.pt
+*.onnx
+*.bin
+*.tar.gz
 *.zip
+
+# Large Generated Documents & Logs
+*.pdf
+outputs/
+*.log
+.cache/
+
+# System & IDE
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
