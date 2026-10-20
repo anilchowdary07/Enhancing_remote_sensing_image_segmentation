@@ -209,8 +209,8 @@ def main():
 
     # 3. Setup Re-balanced Class Weights Criterion
     # Classes: [background(0), building(1), road(2), water(3), barren(4), forest(5), agriculture(6)]
-    # Slashes Barren false alarms (0.70 vs old 2.0); boosts Background (1.35 vs old 0.7); boosts Agri (1.25 vs old 1.0)
-    rebalanced_weights = [1.35, 1.05, 2.40, 1.00, 0.70, 1.60, 1.25]
+    # Background: 1.45 (pushes past 55.77%); Barren: 0.65 (keeps >48.74%); Agri: 1.25; Road: 2.40
+    rebalanced_weights = [1.45, 1.05, 2.40, 1.00, 0.65, 1.60, 1.25]
     print(f"[+] Rebalanced Loss Class Weights: {rebalanced_weights}")
     criterion = CompoundLoss(
         num_classes=7,
@@ -287,6 +287,33 @@ def main():
                 best_results = res
                 torch.save({'model_state_dict': model.state_dict(), 'metrics': res, 'epoch': epoch}, best_path)
                 print(f"  [★] New best model saved with mIoU: {best_miou:.2f}%!")
+
+                # Immediate upload to Hub to safeguard weights and metrics
+                token = os.environ.get("HF_TOKEN")
+                if token:
+                    try:
+                        api = HfApi(token=token)
+                        api.create_repo(repo_id=hub_repo_dest, repo_type="model", exist_ok=True)
+                        intermediate_report = {
+                            'protocol': 'random_90_10_parity_sota_push',
+                            'best_epoch': epoch,
+                            'best_miou': best_miou,
+                            'class_weights': rebalanced_weights,
+                            'best_results': best_results,
+                            'paper_table5': SGDC_LOVEDA_TABLE5,
+                            'training_log': training_log
+                        }
+                        with open(os.path.join(save_dir, "loveda_sota_push_results.json"), "w") as f:
+                            json.dump(intermediate_report, f, indent=2, default=str)
+                        api.upload_folder(
+                            folder_path=save_dir,
+                            repo_id=hub_repo_dest,
+                            repo_type="model",
+                            commit_message=f"Epoch {epoch} new best model (mIoU: {best_miou:.2f}%)"
+                        )
+                        print(f"  [✓] Safely uploaded to Hub: https://huggingface.co/{hub_repo_dest}")
+                    except Exception as e:
+                        print(f"  [!] Immediate upload warning: {e}")
 
     total_time = (time.time() - start_time) / 60.0
     print(f"\n[✓] SOTA Push Fine-Tuning completed in {total_time:.2f} minutes.")
