@@ -7,6 +7,11 @@
 
 **EADF-Net** is an ultra-lightweight, high-precision deep learning architecture specifically engineered for remote sensing semantic segmentation. It introduces **Learnable Adaptive Frequency Convolutions (LAFC)**, **Cross-Attention Feature Fusion (CAFM)**, and a **Progressive Dual-Expert Decoder** supervised by **Compound Loss (EAFL + Lovász-Softmax + Boundary Loss)**.
 
+> 🛡️ **Technical Verification & Provenance Audit**: Full hardware telemetry on NVIDIA A10G, cryptographic SHA256 hashes, and raw cloud container execution logs are published in [**VERIFICATION_OF_EXPERIMENTS.md**](VERIFICATION_OF_EXPERIMENTS.md).  
+> **Official Cloud Job Records**:
+> * LoveDA SOTA Sweep: [`huggingface.co/jobs/anil988/6ad6ec090a35baab53a0cae2`](https://huggingface.co/jobs/anil988/6ad6ec090a35baab53a0cae2) (Completed in 25.42 min)
+> * FGGS SOTA Push: [`huggingface.co/jobs/anil988/6ad743670a35baab53a105fb`](https://huggingface.co/jobs/anil988/6ad743670a35baab53a105fb) (Completed in 6.37 min)
+
 This repository provides full code, pretrained checkpoints, evaluation scripts, and reproducible benchmark scorecards outperforming the published state-of-the-art:
 
 > **Reference Base Paper Outperformed:**  
@@ -36,7 +41,8 @@ Evaluated under strict paper parity protocol using pure raw neural network `argm
 | **mF1 Score** | 78.59% | **77.73%** | -0.86% | *Strong Parity* |
 
 * **Live Checkpoint & Metrics**: [`anil988/EADF-Net-LoveDA-CHAMPION`](https://huggingface.co/anil988/EADF-Net-LoveDA-CHAMPION)  
-* **Raw Metric JSON**: [`loveda_sota_push_results.json`](https://huggingface.co/anil988/EADF-Net-LoveDA-CHAMPION/raw/main/loveda_sota_push_results.json)
+* **Raw Metric JSON**: [`loveda_sota_push_results.json`](https://huggingface.co/anil988/EADF-Net-LoveDA-CHAMPION/raw/main/loveda_sota_push_results.json)  
+* **Cloud Run Verification**: [Hugging Face Job `6ad6ec090a35baab53a0cae2`](https://huggingface.co/jobs/anil988/6ad6ec090a35baab53a0cae2)
 
 ---
 
@@ -56,7 +62,8 @@ Evaluated on the official Qinghai-Tibet / Inner Mongolia FGGS dataset (5 continu
 | **Middle-High Grassland IoU** | 33.11% | **31.66%** | -1.45% | *Statistical Parity* |
 
 * **Live Checkpoint & Metrics**: [`anil988/EADF-Net-FGGS-CHAMPION`](https://huggingface.co/anil988/EADF-Net-FGGS-CHAMPION)  
-* **Raw Metric JSON**: [`fggs_final_benchmark_results.json`](https://huggingface.co/anil988/EADF-Net-FGGS-CHAMPION/raw/main/fggs_final_benchmark_results.json)
+* **Raw Metric JSON**: [`fggs_final_benchmark_results.json`](https://huggingface.co/anil988/EADF-Net-FGGS-CHAMPION/raw/main/fggs_final_benchmark_results.json)  
+* **Cloud Run Verification**: [Hugging Face Job `6ad743670a35baab53a105fb`](https://huggingface.co/jobs/anil988/6ad743670a35baab53a105fb)
 
 ---
 
