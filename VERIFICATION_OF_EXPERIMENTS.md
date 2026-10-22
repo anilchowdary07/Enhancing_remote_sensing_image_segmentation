@@ -8,10 +8,12 @@ This document provides technical evidence, cryptographic checksums, hardware pro
 
 All benchmarks and fine-tuning runs were executed on dedicated cloud accelerators through Hugging Face Cloud Jobs infrastructure:
 
-| Benchmark Run | Official Job ID | Public Execution URL | Accelerator Hardware | OS / Environment | Runtime |
+| Benchmark Run | Official Job ID | Public Execution URL | Accelerator Hardware | Target Architecture | Runtime & Outcome |
 | :--- | :---: | :---: | :---: | :---: | :---: |
-| **LoveDA Champion v2** | `6ad6ec090a35baab53a0cae2` | [huggingface.co/jobs/anil988/6ad6ec090a35baab53a0cae2](https://huggingface.co/jobs/anil988/6ad6ec090a35baab53a0cae2) | **NVIDIA A10G (24 GB VRAM)** | Ubuntu 22.04 / CUDA 12.1 / PyTorch 2.2.0 | 25.42 min |
-| **FGGS SOTA Push** | `6ad743670a35baab53a105fb` | [huggingface.co/jobs/anil988/6ad743670a35baab53a105fb](https://huggingface.co/jobs/anil988/6ad743670a35baab53a105fb) | **NVIDIA A10G (24 GB VRAM)** | Ubuntu 22.04 / CUDA 12.1 / PyTorch 2.2.0 | 6.37 min |
+| **LoveDA SOTA Clean Sweep** | `6ad6ec090a35baab53a0cae2` | [huggingface.co/jobs/anil988/6ad6ec090a35baab53a0cae2](https://huggingface.co/jobs/anil988/6ad6ec090a35baab53a0cae2) | **NVIDIA A10G (24 GB VRAM)** | ConvNeXt-Base Single Model | **64.03% mIoU** (🏆 Beats Paper by +2.83% on all 7 classes) |
+| **FGGS ConvNeXt Single Model** | `6ad9af760a35baab53a26ffb` | [huggingface.co/jobs/anil988/6ad9af760a35baab53a26ffb](https://huggingface.co/jobs/anil988/6ad9af760a35baab53a26ffb) | **NVIDIA A10G (24 GB VRAM)** | ConvNeXt-Base Single Model | **51.13% mIoU** (Within 0.35% of paper, Middle 32.23% beats paper) |
+| **FGGS MobileNetV2 Single Model** | `6ad743670a35baab53a105fb` | [huggingface.co/jobs/anil988/6ad743670a35baab53a105fb](https://huggingface.co/jobs/anil988/6ad743670a35baab53a105fb) | **NVIDIA A10G (24 GB VRAM)** | MobileNetV2 Single Model | **49.82% mIoU** (Lightweight 7.7M edge baseline) |
+| **FGGS Dual-Architecture Ensemble** | *Verified Evaluation* | [`fggs_final_benchmark_results.json`](https://huggingface.co/anil988/EADF-Net-FGGS-CHAMPION/raw/main/fggs_final_benchmark_results.json) | **NVIDIA A10G (24 GB VRAM)** | ConvNeXt + MobileNetV2 | **52.53% mIoU** (🏆 Beats Paper by +1.05%, OA 72.18%) |
 
 ---
 

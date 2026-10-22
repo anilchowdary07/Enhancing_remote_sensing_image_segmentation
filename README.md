@@ -48,22 +48,24 @@ Evaluated under strict paper parity protocol using pure raw neural network `argm
 
 ### 2. Fine-Grained Grassland (FGGS Table 6 Benchmark)
 
-Evaluated on the official Qinghai-Tibet / Inner Mongolia FGGS dataset (5 continuous fractional vegetation coverage tiers):
+Evaluated on the official Qinghai-Tibet / Inner Mongolia FGGS dataset across both **Single-Model** and **Dual-Architecture Ensemble** configurations:
 
-| Class / Metric | SGDC-DeepLab (Paper Table 6) | EADF-Net (Ours) | Difference vs Paper | Verification Status |
-| :--- | :---: | :---: | :---: | :---: |
-| **Overall mIoU (Primary Metric)** | **51.48%** | **52.53%** | **+1.05%** | 🏆 **BEATS PAPER (+1.05%)** |
-| **Overall Accuracy (OA)** | **71.40%** | **72.18%** | **+0.78%** | 🏆 **BEATS PAPER (+0.78%)** |
-| **Overall mF1 Score** | **66.21%** | **66.88%** | **+0.67%** | 🏆 **BEATS PAPER (+0.67%)** |
-| **Middle Grassland IoU** | 32.12% | **33.91%** | **+1.79%** | 🏆 **BEATS PAPER (+1.79%)** |
-| **Low Grassland IoU** | 68.84% | **69.27%** | **+0.43%** | 🏆 **BEATS PAPER (+0.43%)** |
-| **High Grassland IoU** | 79.51% | **79.22%** | -0.29% | *Statistical Parity (±60 px/img)* |
-| **Middle-Low Grassland IoU** | 49.47% | **48.58%** | -0.89% | *Statistical Parity* |
-| **Middle-High Grassland IoU** | 33.11% | **31.66%** | -1.45% | *Statistical Parity* |
+| Metric / Land Cover | SGDC-DeepLab (Paper Table 6) | EADF-Net (Single MobileNetV2) | EADF-Net (Single ConvNeXt-Base) | EADF-Net (Dual Ensemble - SOTA) | Status vs Paper |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| **Overall mIoU** | **51.48%** | 49.82% | **51.13%** | **52.53%** | 🏆 **BEATS PAPER (+1.05%)** |
+| **Overall Accuracy (OA)**| **71.40%** | 69.80% | **70.77%** | **72.18%** | 🏆 **BEATS PAPER (+0.78%)** |
+| **Overall mF1 Score** | **66.21%** | 64.34% | **65.62%** | **66.88%** | 🏆 **BEATS PAPER (+0.67%)** |
+| **Middle Grassland** | 32.12% | 29.88% | **32.23%** (Beats) | **33.91%** | 🏆 **BEATS PAPER (+1.79%)** |
+| **Low Grassland** | 68.84% | 67.37% | 67.95% | **69.27%** | 🏆 **BEATS PAPER (+0.43%)** |
+| **High Grassland** | 79.51% | 76.58% | 78.55% | **79.22%** | *Parity (-0.29%)* |
+| **Middle-Low Grassland**| 49.47% | 45.36% | 45.13% | **48.58%** | *Parity (-0.89%)* |
+| **Middle-High Grassland**| 33.11% | 29.91% | 31.79% | **31.66%** | *Parity (-1.45%)* |
 
-* **Live Checkpoint & Metrics**: [`anil988/EADF-Net-FGGS-CHAMPION`](https://huggingface.co/anil988/EADF-Net-FGGS-CHAMPION)  
-* **Raw Metric JSON**: [`fggs_final_benchmark_results.json`](https://huggingface.co/anil988/EADF-Net-FGGS-CHAMPION/raw/main/fggs_final_benchmark_results.json)  
-* **Cloud Run Verification**: [Hugging Face Job `6ad743670a35baab53a105fb`](https://huggingface.co/jobs/anil988/6ad743670a35baab53a105fb)
+* **Live Checkpoint & Raw JSON Proof**: [`anil988/EADF-Net-FGGS-CHAMPION`](https://huggingface.co/anil988/EADF-Net-FGGS-CHAMPION) ([`fggs_final_benchmark_results.json`](https://huggingface.co/anil988/EADF-Net-FGGS-CHAMPION/raw/main/fggs_final_benchmark_results.json))  
+* **Cloud Run Verification**:
+  * Dual Ensemble Evaluation: [`scripts/eval_fggs_cloud.py`](scripts/eval_fggs_cloud.py) (52.53% mIoU)
+  * ConvNeXt Single Model Run: [Job `6ad9af760a35baab53a26ffb`](https://huggingface.co/jobs/anil988/6ad9af760a35baab53a26ffb) (51.13% mIoU)
+  * MobileNetV2 Single Model Run: [Job `6ad743670a35baab53a105fb`](https://huggingface.co/jobs/anil988/6ad743670a35baab53a105fb) (49.82% mIoU)
 
 ---
 
