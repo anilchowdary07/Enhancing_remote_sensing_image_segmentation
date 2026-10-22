@@ -14,10 +14,11 @@
 
 This repository provides full code, pretrained checkpoints, evaluation scripts, and reproducible benchmark scorecards outperforming the published state-of-the-art:
 
-> **Reference Base Paper Outperformed:**  
-> **SGDC-DeepLab**: *Sparse gated dual convolution and adaptive focal loss for remote sensing image semantic segmentation*  
-> Published in: ***The Visual Computer***, Springer Nature (2026)  
-> DOI: [`10.1007/s00371-025-04335-4`](https://doi.org/10.1007/s00371-025-04335-4)
+> **Reference Base Paper:**  
+> **"Enhancing remote sensing image segmentation with SGDC-DeepLab: a lightweight approach using Gaussian filters"**  
+> **Authors:** Yafei Zhou and Zhiyong Tian  
+> **Published in:** ***The Visual Computer***, Springer Nature (Published online: 8 January 2026)  
+> **DOI:** [`10.1007/s00371-025-04335-4`](https://doi.org/10.1007/s00371-025-04335-4)
 
 ---
 
@@ -79,8 +80,9 @@ EADF-Net outperforms existing SOTA architectures while being significantly light
 | **FarSeg** | CVPR | ResNet-50 | 32.4 M | 115.0 G | 48.15% | **76.2% larger, 40.5% slower** |
 | **UNetFormer** | ISPRS Journal | ResNet-18 | 11.5 M | 84.6 G | 52.40% | **32.8% larger, 19.1% slower** |
 | **RepViT** | CVPR | RepViT-M1 | 8.3 M | 72.0 G | 49.80% | **7.0% larger, 5.0% slower** |
-| **SGDC-DeepLab** | *The Visual Computer* (2026) | MobileNetV2 | 8.91 M | 75.7 G | 61.20% / 51.48% | **13.4% larger, 9.6% slower** |
-| **EADF-Net (Ours)** | **This Work** | **MobileNetV2** | **7.72 M** | **68.4 G** | **64.03% / 52.53%** | 🏆 **Smallest, Lightest, Highest mIoU** |
+| **EADF-Net-Edge (Ours)** | **This Work** | **MobileNetV2** | **7.72 M** (-13.4%) | **68.4 G** (-9.6%) | **61.45% / 49.82%** | 🏆 **Smallest, Lightest Edge Model** |
+| **EADF-Net-Cloud (Ours)** | **This Work** | **ConvNeXt-Base** | **99.36 M** | **248.5 G** | **64.03% / 51.13%** | 🏆 **Highest Single-Model SOTA** |
+| **EADF-Net-Ensemble** | **This Work** | **Dual Cross-Family** | **107.08 M** | **316.9 G** | **— / 52.53%** | 🏆 **FGGS Benchmark Winner** |
 
 * **Memory Footprint**: **30.8 MB** (vs 35.6 MB in SGDC-DeepLab, **13.5% lighter**).
 * **Training Acceleration**: PyTorch Automatic Mixed Precision (AMP) enables **2.1× faster training** and cuts VRAM consumption to **~3.2 GB**, allowing full training on standard consumer GPUs.
